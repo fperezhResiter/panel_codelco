@@ -1,0 +1,189 @@
+.mt-tabla th,
+.mt-tabla td {
+    white-space: normal;
+    min-width: 95px
+}
+
+.mt-tabla th:first-child,
+.mt-tabla td:first-child {
+    min-width: 240px
+}
+
+.mt-tabla .mt-rojo {
+    background: #ffd7d7;
+    color: #922121
+}
+
+.mt-tabla .mt-amarillo {
+    background: #fff4be;
+    color: #715000
+}
+
+.mt-tabla .mt-verde {
+    background: #def4dc;
+    color: #235b24
+}
+
+.mt-tabla .mt-gris {
+    background: #e7eaee;
+    color: #404c59
+}
+
+.mt-tabla .region td {
+    background: #cde2f3;
+    color: var(--navy)
+}
+
+.mt-ceco td:first-child {
+    padding-left: 32px
+}
+
+.mt-ayuda {
+    margin-top: 20px;
+    padding: 15px
+}
+
+.mt-ayuda summary {
+    cursor: pointer;
+    color: var(--navy);
+    font-weight: bold
+}
+
+.mt-opciones {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 12px;
+    background: white;
+    padding: 18px;
+    border: 1px solid var(--linea);
+    border-radius: 8px;
+    margin: 16px 0
+}
+
+.mt-opciones label {
+    flex-direction: row;
+    align-items: center;
+    color: var(--tinta)
+}
+
+.mt-cal-grid {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 7px;
+    margin: 18px 0
+}
+
+.mt-cal-nombre {
+    text-align: center;
+    font-size: 12px;
+    font-weight: bold;
+    color: var(--gris)
+}
+
+.mt-cal-dia {
+    min-height: 105px;
+    background: white;
+    border: 1px solid var(--linea);
+    border-radius: 8px;
+    padding: 10px;
+    text-align: left;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 15px
+}
+
+.mt-cal-dia:disabled {
+    cursor: default;
+    opacity: 1
+}
+
+.mt-cal-dia.programado {
+    border-color: var(--azul);
+    background: #e4f2fc;
+    color: var(--navy)
+}
+
+.mt-cal-dia[aria-pressed=true] {
+    outline: 3px solid var(--azul);
+    outline-offset: 1px
+}
+
+.mt-cal-dia small {
+    font-size: 11px;
+    line-height: 1.4
+}
+
+.mt-cal-dia b {
+    font-size: 17px
+}
+
+.mt-cal-vacio {
+    min-height: 105px
+}
+
+.mt-dia-filtro {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin: 18px 0
+}
+
+.mt-cal-dia.hoy b {
+    text-decoration: underline;
+    text-underline-offset: 4px
+}
+
+#mt-kpis {
+    margin: 18px 0
+}
+
+#mt-alcance {
+    padding-left: 0
+}
+
+.mt-resumen-estado {
+    font-size: 12px
+}
+
+.mt-tabla tfoot td {
+    white-space: nowrap
+}
+
+@media(max-width:650px) {
+    .mt-cal-grid {
+        gap: 3px
+    }
+
+    .mt-cal-dia {
+        padding: 5px;
+        min-height: 85px
+    }
+
+    .mt-cal-dia small {
+        font-size: 10px
+    }
+
+    .mt-cal-vacio {
+        min-height: 85px
+    }
+
+    .mt-cal-dia .mt-ejemplos {
+        display: none
+    }
+}
+
+@media print {
+    .mt-cal-dia {
+        min-height: 85px
+    }
+
+    #mt-configuracion {
+        display: none !important
+    }
+
+    .mt-cal-dia.programado {
+        border: 2px solid #0E81C5
+    }
+}

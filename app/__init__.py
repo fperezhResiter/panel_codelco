@@ -1,1 +1,1 @@
-"""Lógica y servidor del portal de mantenimiento."""
+"""Lógica y servidor del panel de estados de pago de Codelco."""

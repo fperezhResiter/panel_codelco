@@ -23,7 +23,7 @@ echo ERROR: No se encontro Python 3.10 o superior.
 goto error
 
 :validar
-%PYTHON_CMD% -c "import openpyxl, dotenv" >nul 2>&1
+%PYTHON_CMD% -c "import openpyxl, reportlab" >nul 2>&1
 if errorlevel 1 (
     echo ERROR: Faltan dependencias.
     echo Ejecuta Iniciar_Primera_Vez.bat.

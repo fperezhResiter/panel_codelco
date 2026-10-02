@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Auditoría de tickets de EDP — Resiter Minería</title>
+  <link rel="stylesheet" href="../css/panel.css">
+  <script src="../js/abrir_portal.js"></script>
+  <script src="../js/auditoria.js" defer></script>
+</head>
+<body>
+  <header><img class="logo" src="../../logo_sin_fondo_resiter.png" alt="Resiter"><h1>Reporte Codelco</h1><a class="volver-inicio" href="../../Panel.html">← Volver al inicio</a></header>
+  <nav class="navegacion-paneles" aria-label="Vistas del reporte">
+    <a href="Panel_Conciliacion.html">Estados de pago y toneladas</a>
+    <a href="Panel_Densidades.html" >Chequeo de densidades <span class="nav-pendiente">Próximamente</span></a>
+    <a href="Panel_Auditoria_EDP.html" aria-current="page">Auditoría de tickets de EDP</a>
+  </nav>
+  <main class="auditoria">
+    <div class="intro">
+      <div><p class="eyebrow">PANEL 03 · REVISIÓN DOCUMENTAL</p><h2>Auditoría de tickets de EDP</h2><p>Selecciona un EDP, elige un ticket o sortea una muestra y registra tu revisión.</p></div>
+      <button id="actualizar" type="button">Actualizar fuentes</button>
+    </div>
+    <div class="metodo">Hoja RES.NO PELIGROSO · Selección de un ticket o sorteo de 3 a 5 registros · Comprobación manual</div>
+    <p id="estado" role="status" aria-live="polite">Cargando EDP y auditorías guardadas…</p>
+    <div id="avisos" hidden></div>
+    <section class="tarjeta filtros" aria-label="Selección del EDP">
+      <label>Unidad<select id="unidad" disabled></select></label>
+      <label>Año<select id="anio" disabled></select></label>
+      <label>Mes<select id="mes" disabled></select></label>
+      <label class="filtro-edp">Excel EDP<select id="fuente" disabled></select></label>
+      <label>Tickets a sortear<select id="cantidad"><option value="3">3 tickets</option><option value="4">4 tickets</option><option value="5">5 tickets</option></select></label>
+      <button id="sortear" class="primario" type="button" disabled>Sortear tickets</button>
+    </section>
+    <section class="tarjeta seleccion-ticket" aria-label="Selección manual de ticket">
+      <div class="titulo"><div><h3>Revisar un ticket específico</h3><p>Elige un registro del EDP seleccionado, sin realizar un sorteo.</p></div></div>
+      <div class="filtros">
+        <button type="button" id="listar-tickets" disabled>Cargar lista de tickets</button>
+        <label>Buscar por ticket, fila o fecha<input id="buscar-ticket" type="search" placeholder="Número de ticket" disabled></label>
+        <label class="filtro-edp">Ticket del EDP<select id="ticket-elegido" disabled><option value="">Carga la lista de tickets</option></select></label>
+        <button type="button" id="revisar-ticket" class="primario" disabled>Revisar ticket seleccionado</button>
+      </div>
+    </section>
+    <section class="tarjeta historial-auditoria" aria-label="Historial de muestras">
+      <label>Muestras guardadas de la unidad y período seleccionados<select id="historial" disabled><option value="">Sin muestras guardadas</option></select></label>
+      <p>Cada selección o sorteo crea una revisión nueva. Las anteriores conservan sus documentos y comprobaciones.</p>
+    </section>
+    <section id="sin-muestra" class="tarjeta vacio"><h3>Prepara tu revisión de auditoría</h3><p>Elige un ticket específico, sortea 3, 4 o 5 tickets, o retoma una revisión del historial.</p></section>
+    <div id="revision" hidden>
+      <section class="kpis" aria-label="Resumen de auditoría">
+        <div class="kpi"><span>Registros en el EDP</span><strong id="kpi-poblacion">0</strong><small>Hoja de residuos no peligrosos</small></div>
+        <div class="kpi"><span>Tickets seleccionados</span><strong id="kpi-muestra">0</strong><small>Sin repetir filas en la muestra</small></div>
+        <div class="kpi"><span>Comprobados manualmente</span><strong id="kpi-comprobados">0</strong><small>Con respaldo y casilla marcada</small></div>
+        <div class="kpi"><span>Pendientes de comprobación</span><strong id="kpi-pendientes">0</strong><small>Requieren revisión de una persona</small></div>
+      </section>
+      <section class="tarjeta resumen-auditoria">
+        <div class="titulo"><div><h3 id="muestra-titulo"></h3><p id="muestra-fecha"></p></div>
+          <div class="acciones-reporte"><button id="generar-pdf" type="button">Generar reporte PDF</button><button id="exportar" type="button">Descargar CSV</button></div>
+        </div>
+        <div class="contenido"><p id="muestra-origen"></p><p>Revisa los respaldos del ticket o el PDF 2.5a TICKET INTERNO de la carpeta de su EDP y marca la casilla cuando hayas comprobado que coinciden.</p><div id="respaldo-edp"></div><p class="nota-guardado">Los cambios se guardan en este equipo. Al agregar o quitar un respaldo adjunto, la casilla vuelve a quedar pendiente.</p><div id="muestra-avisos"></div></div>
+      </section>
+      <div id="tickets-auditoria"></div>
+    </div>
+    <footer>Reporte Codelco · Auditorías y respaldos guardados en Datos/Auditoria</footer>
+  </main>
+</body>
+</html>

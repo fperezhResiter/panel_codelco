@@ -48,7 +48,6 @@ fi
 
 echo
 echo "Preparacion completada."
-echo "Para abrir el portal ejecuta Iniciar_Panel.command"
+echo "Para abrir el portal ejecuta Iniciar_Panel_MAC.command"
 
 read -p "Presiona Enter para cerrar..."
-`

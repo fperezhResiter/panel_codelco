@@ -21,11 +21,11 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-$PYTHON_CMD -c "import openpyxl, dotenv" >/dev/null 2>&1
+$PYTHON_CMD -c "import openpyxl, reportlab" >/dev/null 2>&1
 
 if [ $? -ne 0 ]; then
     echo "ERROR: Faltan dependencias."
-    echo "Ejecuta Iniciar_Primera_Vez.command"
+    echo "Ejecuta Iniciar_Primera_vez_MAC.command"
     read -p "Presiona Enter para cerrar..."
     exit 1
 fi

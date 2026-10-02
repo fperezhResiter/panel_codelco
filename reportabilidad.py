@@ -1,5 +1,5 @@
-"""Punto de entrada compatible con Iniciar_Panel.bat."""
+"""Punto de entrada compatible con los iniciadores del proyecto."""
 from app.servidor import main
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

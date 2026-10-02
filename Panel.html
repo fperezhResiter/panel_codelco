@@ -3,15 +3,37 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Portal de Reporte de Codelco — Resiter Minería</title>
+  <title>Portal Reporte Codelco — Resiter Minería</title>
   <link rel="stylesheet" href="web/css/panel.css">
   <script src="web/js/abrir_portal.js"></script>
 </head>
 <body>
-  <header><div class="logo">RESITER<span> / </span>MINERÍA</div><h1>Portal de Reporte de Codelco</h1><small>Inicio</small></header>
-  <main>
-    <div class="intro portal-intro"><div><p class="eyebrow">GESTIÓN DE Reporte de Codelco</p><h2>Paneles de seguimiento</h2><p>Selecciona el panel que quieres consultar.</p></div></div>
-    <footer>Resiter Minería · Portal de Reporte de Codelco</footer>
+  <header><img class="logo" src="logo_sin_fondo_resiter.png" alt="Resiter"><h1>Reporte Codelco</h1><small>Inicio</small></header>
+  <main class="portal">
+    <div class="intro portal-intro">
+      <div><p class="eyebrow">GESTIÓN Y CONTROL DE SERVICIOS</p><h2>Paneles de seguimiento</h2><p>Selecciona la vista que quieres consultar.</p></div>
+    </div>
+    <nav class="paneles" aria-label="Paneles de seguimiento">
+      <a class="panel-enlace" href="web/pages/Panel_Conciliacion.html">
+        <div class="panel-cabecera"><span class="panel-icono" aria-hidden="true">01</span><span class="badge">Disponible</span></div>
+        <h3>Estados de pago y toneladas</h3>
+        <p>Conciliación de toneladas y montos del EDP con sus tickets. Filtros, detalle de diferencias y descarga de reportes.</p>
+        <span class="panel-accion">Abrir conciliación <span aria-hidden="true">→</span></span>
+      </a>
+      <a class="panel-enlace" href="web/pages/Panel_Densidades.html">
+        <div class="panel-cabecera"><span class="panel-icono" aria-hidden="true">02</span><span class="badge pendiente">Próximamente</span></div>
+        <h3>Chequeo de densidades</h3>
+        <p>Vista para la revisión de densidades de residuos. Los criterios de chequeo y las fuentes se definirán para este panel.</p>
+        <span class="panel-accion">Ver próxima vista <span aria-hidden="true">→</span></span>
+      </a>
+      <a class="panel-enlace" href="web/pages/Panel_Auditoria_EDP.html">
+        <div class="panel-cabecera"><span class="panel-icono" aria-hidden="true">03</span><span class="badge">Disponible</span></div>
+        <h3>Auditoría de tickets de EDP</h3>
+        <p>Selección de un ticket o sorteo de 3 a 5 por EDP, unidad y período. Respaldos, comprobación manual y reportes PDF y CSV.</p>
+        <span class="panel-accion">Abrir auditoría <span aria-hidden="true">→</span></span>
+      </a>
+    </nav>
+    <footer>Reporte Codelco</footer>
   </main>
 </body>
 </html>

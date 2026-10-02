@@ -1,6 +1,6 @@
 @echo off
 setlocal
-title Preparacion inicial - Portal de mantenimiento
+title Preparacion inicial - Panel Codelco
 
 pushd "%~dp0"
 if errorlevel 1 goto error_carpeta

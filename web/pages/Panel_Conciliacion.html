@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Estados de pago y toneladas — Resiter Minería</title>
+  <link rel="stylesheet" href="../css/panel.css">
+  <script src="../js/abrir_portal.js"></script>
+  <script src="../js/conciliacion.js" defer></script>
+</head>
+<body>
+  <header><img class="logo" src="../../logo_sin_fondo_resiter.png" alt="Resiter"><h1>Reporte Codelco</h1><a class="volver-inicio" href="../../Panel.html">← Volver al inicio</a></header>
+  <nav class="navegacion-paneles" aria-label="Vistas del reporte">
+    <a href="Panel_Conciliacion.html" aria-current="page">Estados de pago y toneladas</a>
+    <a href="Panel_Densidades.html">Chequeo de densidades <span class="nav-pendiente">Próximamente</span></a>
+    <a href="Panel_Auditoria_EDP.html">Auditoría de tickets de EDP</a>
+  </nav>
+  <main>
+    <div class="intro">
+      <div><p class="eyebrow">CONCILIACIÓN DE SERVICIOS</p><h2>Estados de pago y toneladas</h2><p>Ítem 2.5.a · Recolección y disposición final de residuos · CMRIS</p></div>
+      <div class="acciones-reporte"><button id="generar-pdf" type="button" disabled>Generar reporte PDF</button><button id="actualizar" class="primario" type="button">Actualizar fuentes</button></div>
+    </div>
+    <section class="metodo" aria-label="Regla de comparación">
+      <span>Precio Modificación N.º 1 <strong>×</strong> (Peso Total de tickets <strong>÷ 1.000</strong>)</span>
+      <strong>= Monto esperado del EDP</strong>
+    </section>
+    <div id="estado" role="status" aria-live="polite">Leyendo las fuentes…</div>
+    <div id="avisos" hidden></div>
+    <p id="pdf-estado" role="status" aria-live="polite" hidden></p>
+    <section class="filtros tarjeta" aria-label="Filtros de estados de pago">
+      <label>Unidad<select id="unidad"><option value="">Todas las unidades</option></select></label>
+      <label>Año<select id="anio"><option value="">Todos los años</option></select></label>
+      <label>Mes<select id="mes"><option value="">Todos los meses</option></select></label>
+      <label>N.º EDP<select id="edp"><option value="">Todos los EDP</option></select></label>
+      <label>Conciliación<select id="filtro-estado"><option value="">Todos los estados</option><option value="cuadra">Cuadra</option><option value="diferencia">Con diferencia</option><option value="incompleto">Sin conciliar</option></select></label>
+      <button id="limpiar" type="button">Limpiar filtros</button>
+    </section>
+    <section class="kpis" aria-label="Resumen de la selección">
+      <article class="kpi"><span>EDP revisados</span><strong id="kpi-edp">—</strong><small id="kpi-estados">Esperando fuentes</small></article>
+      <article class="kpi"><span>Toneladas según tickets</span><strong id="kpi-ton">—</strong><small id="kpi-tickets">Peso Total ÷ 1.000</small></article>
+      <article class="kpi"><span>Monto esperado (CLP)</span><strong id="kpi-monto">—</strong><small>Precio por tonelada × toneladas</small></article>
+      <article class="kpi"><span>Diferencia neta (CLP)</span><strong id="kpi-diferencia">—</strong><small>EDP menos monto esperado</small></article>
+    </section>
+    <p id="cobertura" class="nota-resumen"></p>
+    <section class="graficos" aria-label="Comparación por período">
+      <article class="tarjeta"><div class="titulo"><h3>Toneladas por EDP</h3><span class="unidad-medida">t</span></div><div class="leyenda"><span class="serie-edp">EDP</span><span class="serie-ticket">Tickets</span></div><div id="grafico-ton" class="grafico"></div></article>
+      <article class="tarjeta"><div class="titulo"><h3>Monto por EDP</h3><span class="unidad-medida">CLP</span></div><div class="leyenda"><span class="serie-edp">EDP</span><span class="serie-ticket">Esperado</span></div><div id="grafico-monto" class="grafico"></div></article>
+    </section>
+    <section class="tarjeta resultados" aria-labelledby="titulo-detalle">
+      <div class="titulo"><div><h3 id="titulo-detalle">Detalle de conciliación</h3><p id="cantidad-registros">Sin datos cargados</p></div><button id="exportar" type="button" disabled>Descargar CSV</button></div>
+      <div class="scroll" tabindex="0" role="region" aria-label="Tabla de conciliación, desplazamiento horizontal">
+        <table>
+          <thead><tr><th>Unidad / período</th><th>EDP</th><th>Tickets</th><th>Peso total<br>kg</th><th>Tickets<br>t</th><th>EDP<br>t</th><th>Precio Mod. 1<br>CLP/t</th><th>Monto EDP<br>CLP</th><th>Esperado<br>CLP</th><th>Diferencia<br>CLP</th><th>Estado</th><th>Revisión</th></tr></thead>
+          <tbody id="filas"><tr><td colspan="12" class="vacio">Cargando estados de pago…</td></tr></tbody>
+        </table>
+      </div>
+      <p class="nota">Diferencia positiva: el EDP supera el monto esperado. Se comparan importes a 2 decimales y toneladas con tolerancia de 0,000001 t. Los acumulados y reajustes no forman parte de esta comparación.</p>
+    </section>
+    <details class="tarjeta fuentes"><summary>Fuentes y criterio de lectura</summary>
+      <div class="contenido"><p id="ruta-fuentes"></p><p>Se suman todas las filas de la tabla de tickets de RES.NO PELIGROSO(S), incluidas las ocultas. Se excluyen totales y resúmenes posteriores. No se filtran tickets por el mes calendario: cada EDP conserva su período de pago.</p><p>Los archivos se leen sin modificarlos. Las fórmulas utilizan el último resultado guardado por Excel; después de editar una fuente, recalcula, guarda y pulsa Actualizar fuentes.</p><p id="archivos-omitidos"></p></div>
+    </details>
+    <footer>Reporte Codelco</footer>
+  </main>
+  <dialog id="detalle" aria-labelledby="detalle-titulo">
+    <div class="titulo"><div><p class="eyebrow">TRAZABILIDAD DEL EDP</p><h3 id="detalle-titulo"></h3></div><button id="cerrar-detalle" type="button" aria-label="Cerrar detalle">Cerrar</button></div>
+    <div id="detalle-contenido" class="contenido"></div>
+  </dialog>
+</body>
+</html>

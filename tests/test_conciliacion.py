@@ -14,6 +14,8 @@ from openpyxl import Workbook
 from openpyxl.worksheet.table import Table
 from app.excel import FuenteExcel, numero
 from app.reportes import comparar, leer_imputacion, leer_tickets, metadatos, crear_reporte
+from app.andina import leer_avance_andina
+from app.base_datos import actualizar_base_datos, leer_reporte
 from app.servidor import ServidorPanel, crear_handler
 
 
@@ -135,7 +137,9 @@ class ConciliacionTests(unittest.TestCase):
 
     def test_http_publica_panel_y_no_expone_fuentes(self):
         with tempfile.TemporaryDirectory() as temp:
-            servidor=ServidorPanel(('127.0.0.1',0),crear_handler(Path(temp)))
+            base_datos = Path(temp) / 'conciliacion.sqlite3'
+            actualizar_base_datos(Path(temp) / 'Fuentes', base_datos)
+            servidor=ServidorPanel(('127.0.0.1',0),crear_handler(Path(temp), base_datos=base_datos))
             hilo=threading.Thread(target=servidor.serve_forever,daemon=True); hilo.start()
             base=f'http://127.0.0.1:{servidor.server_port}'
             try:
@@ -148,6 +152,124 @@ class ConciliacionTests(unittest.TestCase):
                 self.assertEqual(error.exception.code,404)
             finally:
                 servidor.shutdown(); servidor.server_close(); hilo.join()
+
+
+def fuente_andina(tabla=True):
+    libro = FuenteExcel.__new__(FuenteExcel)
+    libro.valores = Workbook()
+    fisico = libro.valores.active
+    fisico.title = 'Avance Físico'
+    fisico.append(['Posición', 'Total Valor Presupuesto', 'Total Valor Actual EP', 'Precio', 'Monto EDP'])
+    fisico.append(['1.1', 9999, 3, 100, 99999])
+    financiero = libro.valores.create_sheet('Avance Financiero')
+    financiero.append(['Posición', 'Valor Total Presupuesto', 'Total Valor Actual EP', 'Saldo'])
+    financiero.append(['1.1', 99999, 300, 8000])
+    tickets = libro.valores.create_sheet('1.1')
+    tickets.append(['Fecha', 'Nro. Ticket', 'Cantidad (Ton)', 'Precio x ton', 'Valor Pesaje', 'Nr. EDP', 'Tipo Residuo'])
+    tickets.append([datetime(2026, 4, 26), 0, 1, 100, 100, 55, 'RINP'])
+    tickets.append([datetime(2026, 5, 25), 0, 2, 100, 200, 55, 'RINP'])
+    tickets.append([None, None, None, 100, 0, 55, 'RINP'])
+    tickets.row_dimensions[3].hidden = True
+    if tabla:
+        tickets.add_table(Table(displayName='TicketsAndina', ref='A1:G4'))
+    tickets.append(['TOTAL', None, 3, None, 300])
+    tickets.append(['Resumen', 999, 99999])
+    libro.formulas = Workbook()
+    libro.formulas.remove(libro.formulas.active)
+    for hoja in libro.valores:
+        formulas = libro.formulas.create_sheet(hoja.title)
+        for fila in hoja:
+            for c in fila:
+                if c.value is not None:
+                    formulas[c.coordinate] = c.value
+    return libro
+
+
+class AndinaTests(unittest.TestCase):
+    def setUp(self):
+        self.libro = fuente_andina()
+
+    def tearDown(self):
+        self.libro.cerrar()
+
+    def test_precio_y_totales_se_leen_de_las_hojas_correctas(self):
+        valores, refs, _ = leer_avance_andina(self.libro)
+        self.assertEqual(valores, {'precio': Decimal(100), 'ton_edp': Decimal(3), 'monto_edp': Decimal(300)})
+        self.assertEqual(refs['precio']['hoja'], 'Avance Físico')
+        self.assertEqual(refs['ton_edp']['celda'], 'C2')
+        self.assertEqual(refs['monto_edp']['hoja'], 'Avance Financiero')
+
+    def test_cantidad_ya_es_toneladas_y_no_cuenta_plantillas(self):
+        peso, tickets, ref, errores, avisos = leer_tickets(self.libro, 'Andina')
+        self.assertEqual(peso, Decimal(3000))
+        self.assertEqual([t['peso_ton'] for t in tickets], [1, 2])
+        self.assertEqual(len(tickets), 2)
+        self.assertEqual(ref['unidad'], 't')
+        self.assertEqual(ref['hoja'], '1.1')
+        self.assertFalse(errores)
+        self.assertTrue(any('repetidos' in a for a in avisos))
+        self.assertEqual(comparar(Decimal(100), Decimal(3), Decimal(300), peso)['estado'], 'cuadra')
+
+    def test_formato_antiguo_sin_tabla_y_total_sin_etiqueta(self):
+        hoja = self.libro.valores['1.1']
+        del hoja.tables['TicketsAndina']
+        hoja['C1'] = 'CANTIDAD'
+        hoja['A5'] = None
+        self.libro.formulas['1.1']['C5'] = '=SUM(C2:C4)'
+        self.assertEqual(leer_tickets(self.libro, 'Andina')[0], Decimal(3000))
+
+    def test_total_dentro_de_tabla_no_se_suma_dos_veces(self):
+        self.libro.valores['1.1'].tables['TicketsAndina'].ref = 'A1:G5'
+        self.assertEqual(leer_tickets(self.libro, 'Andina')[0], Decimal(3000))
+
+    def test_ticket_con_cantidad_faltante_no_es_plantilla(self):
+        self.libro.valores['1.1']['C3'] = None
+        peso, tickets, _, errores, _ = leer_tickets(self.libro, 'Andina')
+        self.assertIsNone(peso)
+        self.assertEqual(len(tickets), 2)
+        self.assertTrue(errores)
+
+    def test_ticket_faltante_con_suma_de_otra_columna_no_es_total(self):
+        self.libro.valores['1.1']['B3'] = None
+        self.libro.formulas['1.1']['C3'] = '=SUM(D3:F3)'
+        peso, tickets, _, errores, _ = leer_tickets(self.libro, 'Andina')
+        self.assertIsNone(peso)
+        self.assertEqual(len(tickets), 2)
+        self.assertTrue(any('falta el número de ticket' in e for e in errores))
+
+    def test_errores_y_ambiguedades_no_inventan_resultados(self):
+        self.libro.valores['Avance Físico']['D2'] = None
+        self.libro.formulas['Avance Físico']['D2'] = '=OtraHoja!A1'
+        with self.assertRaisesRegex(ValueError, 'fórmula sin resultado'):
+            leer_avance_andina(self.libro)
+        self.libro.valores['Avance Físico']['F1'] = 'Precio'
+        with self.assertRaisesRegex(ValueError, 'columna única'):
+            leer_avance_andina(self.libro)
+
+    def test_actualiza_andina_con_regla_nueva_aunque_el_excel_no_cambie(self):
+        with tempfile.TemporaryDirectory() as temp:
+            raiz = Path(temp)
+            carpeta = raiz / 'Fuentes' / 'Codelco Andina' / '2026 -05 EDP 55'
+            carpeta.mkdir(parents=True)
+            ruta = carpeta / 'EDP.xlsx'
+            ruta.touch()
+            stat = ruta.stat()
+            relativa = ruta.relative_to(raiz / 'Fuentes').as_posix()
+            antiguo = {'unidad': 'Andina', 'estado': 'incompleto', 'errores': ['Regla antigua']}
+            with patch('app.reportes.FuenteExcel', return_value=self.libro) as abrir:
+                reporte = crear_reporte(raiz / 'Fuentes', {relativa: ((stat.st_size, stat.st_mtime_ns), antiguo)},
+                                        {relativa: (stat.st_size, stat.st_mtime_ns)})
+            abrir.assert_called_once()
+            registro = reporte['registros'][0]
+            self.assertEqual(registro['estado'], 'cuadra', registro['errores'])
+            self.assertEqual(registro['item'], '1.1')
+            self.assertEqual(registro['ton_tickets'], 3)
+            with patch('app.reportes.FuenteExcel', return_value=fuente_andina()):
+                actualizar_base_datos(raiz / 'Fuentes', raiz / 'reporte.sqlite3')
+            self.assertEqual(leer_reporte(raiz / 'reporte.sqlite3')['registros'][0]['estado'], 'cuadra')
+            with patch('app.reportes.FuenteExcel', side_effect=AssertionError('Debe reutilizar la regla nueva')):
+                actualizado = actualizar_base_datos(raiz / 'Fuentes', raiz / 'reporte.sqlite3')
+            self.assertEqual(actualizado['registros'][0]['ton_tickets'], 3)
 
 
 @unittest.skipUnless(os.environ.get('PRUEBA_FUENTES'),'Configura PRUEBA_FUENTES para verificar los Excel reales.')

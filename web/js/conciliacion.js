@@ -70,7 +70,7 @@
     $('filas').innerHTML = visibles.length ? visibles.map(r => {
       const [etiqueta, clase] = estados[r.estado], indice = datos.registros.indexOf(r);
       return '<tr><td><strong>' + escapar(r.unidad || 'Unidad no identificada') + '</strong><small>' +
-        escapar(r.periodo ? r.mes_nombre + ' ' + r.anio : r.nombre) + '</small></td><td>' + escapar(r.edp ?? '—') +
+        escapar(r.periodo ? r.mes_nombre + ' ' + r.anio : r.nombre) + '</small><small>Ítem ' + escapar(r.item || (r.unidad === 'Andina' ? '1.1' : '2.5.a')) + '</small></td><td>' + escapar(r.edp ?? '—') +
         '</td><td>' + numero(r.tickets.length,0) + '</td><td>' + numero(r.peso_kg,0) + '</td><td>' + numero(r.ton_tickets,3) +
         '</td><td>' + numero(r.ton_edp,3) + '</td><td>' + numero(r.precio) + '</td><td>' + numero(r.monto_edp) +
         '</td><td>' + numero(r.monto_esperado) + '</td><td>' + numero(r.diferencia) +
@@ -83,14 +83,15 @@
   function abrirDetalle(indice) {
     const r = datos.registros[indice];
     if (!r) return;
-    $('detalle-titulo').textContent = (r.unidad || 'Archivo por revisar') + ' · EDP ' + (r.edp ?? '—') + ' · ' + (r.periodo || '');
-    const valores = [['Peso de tickets',numero(r.peso_kg,0)+' kg'],['Toneladas de tickets',numero(r.ton_tickets,3)+' t'],
-      ['Toneladas del EDP',numero(r.ton_edp,3)+' t'],['Precio Modificación N.º 1',pesos(r.precio)+'/t'],
+    const andina = r.unidad === 'Andina';
+    $('detalle-titulo').textContent = (r.unidad || 'Archivo por revisar') + ' · Ítem ' + (r.item || (andina ? '1.1' : '2.5.a')) + ' · EDP ' + (r.edp ?? '—') + ' · ' + (r.periodo || '');
+    const valores = [[andina ? 'Peso equivalente de tickets' : 'Peso de tickets',numero(r.peso_kg,0)+' kg'],['Toneladas de tickets',numero(r.ton_tickets,3)+' t'],
+      ['Toneladas del EDP',numero(r.ton_edp,3)+' t'],[andina ? 'Precio de Avance físico' : 'Precio Modificación N.º 1',pesos(r.precio)+'/t'],
       ['Monto EDP',pesos(r.monto_edp)],['Monto esperado',pesos(r.monto_esperado)],
       ['Diferencia de toneladas',numero(r.diferencia_ton,6)+' t'],['Diferencia de monto',pesos(r.diferencia)],
       ['Conciliación',estados[r.estado][0]]];
     const refs = Object.entries(r.referencias).map(([k,v]) => {
-      const nombre = {precio:'Precio',ton_edp:'Toneladas EDP',monto_edp:'Monto EDP',peso:'Peso de tickets'}[k];
+      const nombre = {precio:'Precio',ton_edp:'Toneladas EDP',monto_edp:'Monto EDP',peso:andina ? 'Cantidad de tickets (t)' : 'Peso de tickets (kg)'}[k];
       return '<p><strong>'+nombre+':</strong> '+escapar(v.hoja)+' · '+escapar(v.celda || v.rango)+
         (v.formula ? ' <code>'+escapar(v.formula)+'</code>' : '')+'</p>';
     }).join('');
@@ -100,14 +101,14 @@
       (r.errores.length || r.avisos.length ? '<div class="observaciones">'+[...r.errores,...r.avisos].map(a=>'<p>'+escapar(a)+'</p>').join('')+'</div>' : '')+
       '<div class="ref">'+refs+'</div><h3>Tickets incluidos ('+r.tickets.length+')</h3>'+
       (r.tickets.length ? '<label>Buscar ticket, fecha, lugar o residuo<input id="buscar-ticket" type="search" placeholder="Escribe para filtrar el detalle"></label>'+
-      '<div class="scroll"><table class="tickets"><thead><tr><th>Fila / celda</th><th>Ticket</th><th>Fecha</th><th>Lugar de retiro</th><th>Residuo</th><th>Peso total (kg)</th></tr></thead><tbody id="tickets-filas"></tbody></table></div>'+
+      '<div class="scroll"><table class="tickets"><thead><tr><th>Fila / celda</th><th>Ticket</th><th>Fecha</th><th>Lugar de retiro</th><th>Residuo</th><th>'+ (andina ? 'Cantidad (t)' : 'Peso total (kg)') +'</th></tr></thead><tbody id="tickets-filas"></tbody></table></div>'+
       '<p class="nota">El buscador solo filtra esta lista; no cambia los totales del EDP.</p>' : '<p>No se pudieron obtener tickets de este archivo.</p>');
     function tickets() {
       const q = $('buscar-ticket').value.toLocaleLowerCase('es');
       const seleccion = r.tickets.filter(t => [t.ticket,t.fecha,t.retiro,t.residuo].join(' ').toLocaleLowerCase('es').includes(q));
       $('tickets-filas').innerHTML = seleccion.map(t => '<tr><td>'+t.fila+' / '+escapar(t.celda)+'</td><td>'+escapar(t.ticket)+
         '</td><td>'+escapar(t.fecha || 'Sin fecha')+'</td><td>'+escapar(t.retiro)+'</td><td>'+escapar(t.residuo)+
-        '</td><td>'+numero(t.peso_kg,0)+'</td></tr>').join('') || '<tr><td colspan="6" class="vacio">Sin coincidencias.</td></tr>';
+        '</td><td>'+numero(andina ? t.peso_ton : t.peso_kg,andina ? 3 : 0)+'</td></tr>').join('') || '<tr><td colspan="6" class="vacio">Sin coincidencias.</td></tr>';
     }
     if (r.tickets.length) { $('buscar-ticket').addEventListener('input',tickets); tickets(); }
     $('detalle').showModal();
@@ -119,16 +120,16 @@
     $('actualizar').disabled = true;
     $('exportar').disabled = true;
     $('generar-pdf').disabled = true;
-    $('actualizar').textContent = 'Leyendo fuentes…';
+    $('actualizar').textContent = 'Cargando datos…';
     $('estado').className = '';
-    $('estado').textContent = 'Leyendo los Excel y conciliando los tickets…';
+    $('estado').textContent = 'Cargando el reporte guardado…';
     try {
       const respuesta = await fetch('/api/conciliacion', {cache:'no-store'});
       const contenido = await respuesta.json();
       if (!respuesta.ok) throw new Error(contenido.error || 'No se pudieron leer las fuentes.');
       datos = contenido;
       prepararFiltros();
-      $('estado').textContent = 'Última lectura: '+new Date(datos.actualizado).toLocaleString('es-CL')+' · '+datos.registros.length+' archivos EDP';
+      $('estado').textContent = 'Base actualizada: '+new Date(datos.actualizado).toLocaleString('es-CL')+' · '+datos.registros.length+' archivos EDP';
       $('avisos').hidden = !datos.avisos.length;
       $('avisos').innerHTML = datos.avisos.map(v=>'<p>'+escapar(v)+'</p>').join('');
       $('ruta-fuentes').textContent = 'Carpeta consultada: '+datos.fuentes;
@@ -142,7 +143,7 @@
     } finally {
       cargando = false;
       $('actualizar').disabled = false;
-      $('actualizar').textContent = 'Actualizar fuentes';
+      $('actualizar').textContent = 'Recargar datos';
       $('exportar').disabled = !visibles.length;
       $('generar-pdf').disabled = !visibles.length || generandoPdf;
     }
@@ -158,7 +159,7 @@
     $('pdf-estado').className = '';
     $('pdf-estado').textContent = 'Preparando el reporte con los filtros seleccionados…';
     // Se envía la instantánea visible; nunca se releen los Excel al exportar.
-    const campos = ['unidad','anio','mes_nombre','periodo','edp','estado','peso_kg','ton_tickets',
+    const campos = ['unidad','item','anio','mes_nombre','periodo','edp','estado','peso_kg','ton_tickets',
       'ton_edp','precio','monto_edp','monto_esperado','diferencia','avisos','errores'];
     const nombres = ['Unidad','Año','Mes','EDP','Conciliación'];
     const seleccion = Object.fromEntries(filtros.map((id,i) => [nombres[i], $(id).selectedOptions[0].textContent]));
@@ -196,7 +197,7 @@
   }
 
   function exportar() {
-    const campos = [['unidad','Unidad'],['periodo','Período'],['edp','EDP'],['peso_kg','Peso kg'],
+    const campos = [['unidad','Unidad'],['item','Ítem'],['periodo','Período'],['edp','EDP'],['peso_kg','Peso kg'],
       ['ton_tickets','Toneladas tickets'],['ton_edp','Toneladas EDP'],['precio','Precio CLP/t'],
       ['monto_edp','Monto EDP CLP'],['monto_esperado','Esperado CLP'],['diferencia','Diferencia CLP'],
       ['estado','Estado'],['archivo','Archivo'],['errores','Errores'],['avisos','Observaciones']];

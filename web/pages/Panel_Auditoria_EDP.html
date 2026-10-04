@@ -20,7 +20,7 @@
       <div><p class="eyebrow">PANEL 03 · REVISIÓN DOCUMENTAL</p><h2>Auditoría de tickets de EDP</h2><p>Selecciona un EDP, elige un ticket o sortea una muestra y registra tu revisión.</p></div>
       <button id="actualizar" type="button">Actualizar fuentes</button>
     </div>
-    <div class="metodo">Hoja RES.NO PELIGROSO · Selección de un ticket o sorteo de 3 a 5 registros · Comprobación manual</div>
+    <div class="metodo">Andina: hoja 1.1, Cantidad en toneladas · El Salvador: RES.NO PELIGROSO(S), Peso Total en kg · Selección de un ticket o sorteo de 3 a 5 registros · Comprobación manual</div>
     <p id="estado" role="status" aria-live="polite">Cargando EDP y auditorías guardadas…</p>
     <div id="avisos" hidden></div>
     <section class="tarjeta filtros" aria-label="Selección del EDP">
@@ -47,7 +47,7 @@
     <section id="sin-muestra" class="tarjeta vacio"><h3>Prepara tu revisión de auditoría</h3><p>Elige un ticket específico, sortea 3, 4 o 5 tickets, o retoma una revisión del historial.</p></section>
     <div id="revision" hidden>
       <section class="kpis" aria-label="Resumen de auditoría">
-        <div class="kpi"><span>Registros en el EDP</span><strong id="kpi-poblacion">0</strong><small>Hoja de residuos no peligrosos</small></div>
+        <div class="kpi"><span>Registros en el EDP</span><strong id="kpi-poblacion">0</strong><small id="poblacion-hoja">Tickets de la hoja del servicio</small></div>
         <div class="kpi"><span>Tickets seleccionados</span><strong id="kpi-muestra">0</strong><small>Sin repetir filas en la muestra</small></div>
         <div class="kpi"><span>Comprobados manualmente</span><strong id="kpi-comprobados">0</strong><small>Con respaldo y casilla marcada</small></div>
         <div class="kpi"><span>Pendientes de comprobación</span><strong id="kpi-pendientes">0</strong><small>Requieren revisión de una persona</small></div>
@@ -56,7 +56,7 @@
         <div class="titulo"><div><h3 id="muestra-titulo"></h3><p id="muestra-fecha"></p></div>
           <div class="acciones-reporte"><button id="generar-pdf" type="button">Generar reporte PDF</button><button id="exportar" type="button">Descargar CSV</button></div>
         </div>
-        <div class="contenido"><p id="muestra-origen"></p><p>Revisa los respaldos del ticket o el PDF 2.5a TICKET INTERNO de la carpeta de su EDP y marca la casilla cuando hayas comprobado que coinciden.</p><div id="respaldo-edp"></div><p class="nota-guardado">Los cambios se guardan en este equipo. Al agregar o quitar un respaldo adjunto, la casilla vuelve a quedar pendiente.</p><div id="muestra-avisos"></div></div>
+        <div class="contenido"><p id="muestra-origen"></p><p>Revisa los respaldos del ticket o el PDF del servicio en la carpeta de su EDP: 1.1 Retiro RINSP para Andina, 2.5a TICKET INTERNO para El Salvador. Marca la casilla cuando hayas comprobado que coinciden.</p><div id="respaldo-edp"></div><p class="nota-guardado">Los cambios se guardan en este equipo. Al agregar o quitar un respaldo adjunto, la casilla vuelve a quedar pendiente.</p><div id="muestra-avisos"></div></div>
       </section>
       <div id="tickets-auditoria"></div>
     </div>

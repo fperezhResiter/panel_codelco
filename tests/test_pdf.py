@@ -60,6 +60,15 @@ class PdfTests(unittest.TestCase):
         self.assertIn('ULTIMA UNIDAD',''.join(paginas))
         self.assertGreater(sum('Unidad / período' in p for p in paginas),1)
 
+    @unittest.skipUnless(PdfReader, 'pypdf opcional no disponible.')
+    def test_andina_identifica_item_y_cantidad_en_toneladas(self):
+        datos = instantanea()
+        datos['registros'][0].update(unidad='Andina', item='1.1')
+        texto = ''.join(p.extract_text() for p in PdfReader(BytesIO(crear_pdf(datos))).pages)
+        self.assertIn('Andina: ítem 1.1', texto)
+        self.assertIn('Cantidad (t)', texto)
+        self.assertIn('Precio CLP/t', texto)
+
     def test_endpoint_descarga_sin_releer_los_excel(self):
         with tempfile.TemporaryDirectory() as temp:
             servidor=ServidorPanel(('127.0.0.1',0),crear_handler(Path(temp)))

@@ -41,6 +41,29 @@ def adjunto(nombre='respaldo.pdf', contenido=b'%PDF-1.4\nRespaldo de prueba'):
     return {'nombre': nombre, 'contenido': base64.b64encode(contenido).decode()}
 
 
+def excel_andina(tabla=True, total_sin_etiqueta=False, cantidad_vacia=False):
+    libro = Workbook()
+    hoja = libro.active
+    hoja.title = '1.1'
+    hoja.append(['Fecha', 'Nro. Ticket', 'Cantidad', 'Precio x ton', 'Valor Pesaje', 'Nr. EDP'])
+    for n in range(8):
+        hoja.append([datetime(2026, 4, 26), 0 if n < 2 else n, (n + 1) / 10, 56351, '=C2*D2', 55])
+    hoja['B4'].number_format = '000000'
+    hoja.row_dimensions[3].hidden = True
+    if cantidad_vacia:
+        hoja['C3'] = None
+    for _ in range(2):
+        hoja.append([None, None, None, 56351, '=C10*D10', 55])
+    if tabla:
+        hoja.add_table(Table(displayName='TicketsAndina', ref='A1:F11'))
+    hoja.append([None if total_sin_etiqueta else 'TOTAL', None, '=SUM(C2:C11)'])
+    hoja.append(['Resumen posterior', 999, 99999])
+    salida = BytesIO()
+    libro.save(salida)
+    libro.close()
+    return salida.getvalue()
+
+
 class AuditoriaTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -62,6 +85,86 @@ class AuditoriaTests(unittest.TestCase):
     def seleccionar(self, fila=3):
         lista = self.a.listar_tickets(self.fuente)
         return self.a.seleccionar({'fuente': self.fuente, 'fila': fila, 'sha256': lista['sha256']})
+
+    def agregar_andina(self):
+        carpeta = self.fuentes / 'Codelco Andina' / '2026 -05 EDP 55'
+        carpeta.mkdir(parents=True)
+        archivo = carpeta / 'Andina.xlsx'
+        archivo.write_bytes(excel_andina())
+        fuente = next(f for f in self.a.catalogo()['fuentes'] if f['unidad'] == 'Andina')
+        return fuente['id'], archivo
+
+    def test_andina_lectura_toneladas_y_ambos_formatos(self):
+        for tabla in (True, False):
+            for sin_etiqueta in (True, False):
+                datos = leer_excel(excel_andina(tabla, sin_etiqueta), 'Andina')
+                self.assertEqual(datos['hoja'], '1.1')
+                self.assertEqual(datos['item'], '1.1')
+                self.assertEqual(len(datos['tickets']), 8)
+                self.assertEqual(datos['tickets'][1]['fila'], 3)
+                self.assertEqual(datos['tickets'][2]['ticket'], '000002')
+                self.assertEqual(datos['tickets'][1]['campos'][2]['valor'], '0.2')
+                self.assertEqual(datos['tickets'][1]['campos'][2]['unidad'], 't')
+                self.assertTrue(any('repetidos' in a for a in datos['avisos']))
+        datos = leer_excel(excel_andina(cantidad_vacia=True), 'Andina')
+        self.assertEqual(len(datos['tickets']), 8)
+        self.assertEqual(datos['tickets'][1]['campos'][2]['valor'], '')
+
+    def test_andina_sortea_3_4_5_y_conserva_historial(self):
+        fuente, _ = self.agregar_andina()
+        for cantidad in (3, 4, 5):
+            r = self.solicitud_memoria('POST', '/api/auditoria/sortear', {'fuente': fuente, 'cantidad': cantidad})
+            self.assertEqual(r['status'], 200)
+            muestra = json.loads(r['contenido'])
+            self.assertEqual(muestra['unidad'], 'Andina')
+            self.assertEqual(muestra['hoja'], '1.1')
+            self.assertEqual(muestra['poblacion'], 8)
+            self.assertEqual(len({t['fila'] for t in muestra['tickets']}), cantidad)
+            self.assertTrue(all(t['fila'] < 10 for t in muestra['tickets']))
+            self.assertEqual(self.a.obtener(muestra['id'])['tickets'], muestra['tickets'])
+        self.assertEqual(len(self.a.catalogo()['muestras']), 3)
+
+    def test_andina_seleccion_manual_exportaciones_y_cambio_de_excel(self):
+        fuente, archivo = self.agregar_andina()
+        lista = self.a.listar_tickets(fuente)
+        self.assertEqual(len(lista['tickets']), 8)
+        self.assertEqual(lista['hoja'], '1.1')
+        r = self.solicitud_memoria('POST', '/api/auditoria/seleccionar',
+                                  {'fuente': fuente, 'fila': 3, 'sha256': lista['sha256']})
+        self.assertEqual(r['status'], 200)
+        muestra = json.loads(r['contenido'])
+        self.assertEqual(muestra['tickets'][0]['campos'][2]['valor'], '0.2')
+        csv_texto = crear_csv(muestra).decode('utf-8-sig')
+        self.assertIn('Cantidad (t) [C]', csv_texto)
+        for extension in ('pdf', 'csv'):
+            self.assertEqual(self.solicitud_memoria('GET', '/api/auditoria/reporte.' + extension + '?id=' + muestra['id'])['status'], 200)
+        try:
+            from pypdf import PdfReader
+        except ImportError:
+            PdfReader = None
+        if PdfReader:
+            pdf = PdfReader(BytesIO(crear_pdf_auditoria(muestra)))
+            self.assertIn('0.2 t', '\n'.join(p.extract_text() for p in pdf.pages))
+        archivo.write_bytes(excel_andina(cantidad_vacia=True))
+        with self.assertRaisesRegex(ValueError, 'Excel cambió'):
+            self.a.seleccionar({'fuente': fuente, 'fila': 3, 'sha256': lista['sha256']})
+
+    def test_andina_respaldo_del_servicio_correcto_y_copia_persistente(self):
+        fuente, archivo = self.agregar_andina()
+        (archivo.parent / '2.5a TICKET INTERNO.pdf').write_bytes(b'%PDF-1.4\nOtro servicio')
+        muestra = self.a.sortear({'fuente': fuente, 'cantidad': 3})
+        self.assertIsNone(muestra['respaldo_edp'])
+        cambio = {'muestra': muestra['id'], 'fila': muestra['tickets'][0]['fila'], 'comprobado': True}
+        with self.assertRaisesRegex(ValueError, '1.1 Retiro RINSP'):
+            self.a.modificar(cambio, 'comprobar')
+        pdf = archivo.parent / '1.1 Retiro RINSP.pdf'
+        contenido = b'%PDF-1.4\nRespaldo Andina'
+        pdf.write_bytes(contenido)
+        muestra = self.a.modificar(cambio, 'comprobar')
+        self.assertTrue(muestra['respaldo_edp']['guardado'])
+        self.assertTrue(muestra['tickets'][0]['comprobado'])
+        pdf.unlink()
+        self.assertEqual(self.a.documento_edp(muestra['id'])[1], contenido)
 
     def solicitud_memoria(self, metodo, ruta, datos=None):
         """Ejecutar el handler sin sockets ni publicar el panel."""
@@ -245,7 +348,7 @@ class AuditoriaTests(unittest.TestCase):
         self.assertTrue(all(len(t['documentos']) == 1 for t in self.a.obtener(m['id'])['tickets']))
 
     def test_importacion_contexto_y_archivos_invalidos(self):
-        datos = {**adjunto('EDP.xlsx', excel()), 'unidad': 'Andina', 'anio': 2025, 'mes': 8, 'edp': 12}
+        datos = {**adjunto('EDP.xlsx', excel_andina()), 'unidad': 'Andina', 'anio': 2025, 'mes': 8, 'edp': 12}
         fuente = self.a.importar(datos)
         self.assertEqual(self.a.importar(datos)['id'], fuente['id'])
         self.assertEqual(len(self.a.catalogo()['fuentes']), 2)
@@ -301,7 +404,10 @@ class AuditoriaTests(unittest.TestCase):
                 with self.assertRaises(HTTPError) as error: urlopen(base + ruta)
                 self.assertEqual(error.exception.code, 404)
             with self.assertRaises(HTTPError) as error:
-                post('sortear', {'fuente': self.fuente, 'cantidad': 3}, 'https://otro.example')
+                # El origen se rechaza antes de leer el cuerpo. Sin bytes pendientes,
+                # Windows no convierte el cierre del socket en un reset intermitente.
+                urlopen(Request(base + '/api/auditoria/sortear', b'',
+                                {'Content-Type': 'application/json', 'Origin': 'https://otro.example'}))
             self.assertEqual(error.exception.code, 400)
         finally:
             servidor.shutdown(); servidor.server_close(); hilo.join()

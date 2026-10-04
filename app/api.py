@@ -1,9 +1,9 @@
 """Registro de consultas JSON; separa el servidor de la lógica del reporte."""
-from .reportes import crear_reporte
+from .base_datos import leer_reporte
 
 
-def conciliacion(fuentes, parametros):
-    return crear_reporte(fuentes)
+def conciliacion(base_datos, parametros):
+    return leer_reporte(base_datos)
 
 
 API_RUTAS = {'/api/conciliacion': conciliacion}

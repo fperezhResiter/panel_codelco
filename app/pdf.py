@@ -94,12 +94,13 @@ def crear_pdf(datos):
                             topMargin=65, bottomMargin=30, title='Estados de pago y toneladas',
                             author='Resiter Minería')
     historia = [par('Estados de pago y toneladas',18,NAVY,True),
-                par('Ítem 2.5.a - Recolección y disposición final de residuos - CMRIS',8),
+                par('Andina: ítem 1.1 - Retiro de residuos industriales no peligrosos. El Salvador: ítem 2.5.a - CMRIS.',8),
                 Spacer(1,7)]
     filtros = datos.get('filtros',{})
     seleccion = ' / '.join(f'{k}: {v}' for k,v in filtros.items()) or 'Todos los EDP'
     historia += [par(seleccion,8,NAVY), par('Última lectura: '+str(datos.get('actualizado','No disponible')),7),
-                 par('Precio Modificación N.º 1 × (Peso Total de tickets ÷ 1.000) = Monto esperado del EDP',8,NAVY),
+                 par('Monto esperado = precio por tonelada × toneladas de tickets.',8,NAVY),
+                 par('Andina: Cantidad (t) de hoja 1.1 y Precio de Avance físico. El Salvador: Peso Total (kg) ÷ 1.000 y Precio Modificación N.º 1.',7),
                  Spacer(1,5)]
     cuadros = [
         ('EDP revisados',str(len(registros)),f"{sum(r['estado']=='cuadra' for r in registros)} cuadran / {sum(r['estado']=='diferencia' for r in registros)} con diferencia"),
@@ -127,11 +128,12 @@ def crear_pdf(datos):
             historia += [graficos,Spacer(1,6)]
     else:
         historia += [par('Sin EDP conciliables para los gráficos.',9),Spacer(1,6)]
-    encabezado = ['Unidad / período','EDP','Tickets','Peso total kg','Tickets t','EDP t',
-                  'Precio Mod. 1 CLP/t','Monto EDP CLP','Esperado CLP','Diferencia CLP','Estado']
+    encabezado = ['Unidad / período / ítem','EDP','Tickets','Peso total kg','Tickets t','EDP t',
+                  'Precio CLP/t','Monto EDP CLP','Esperado CLP','Diferencia CLP','Estado']
     filas = [[par(c,7,colors.white,True) for c in encabezado]]
     for r in registros:
-        fila = [par(f"{r.get('unidad') or '-'} / {r.get('periodo') or '-'}",7,NAVY),
+        item = r.get('item') or ('1.1' if r.get('unidad') == 'Andina' else '2.5.a')
+        fila = [par(f"{r.get('unidad') or '-'} / {r.get('periodo') or '-'} / {item}",7,NAVY),
                 par(r.get('edp') or '-',7,NAVY),par(numero(r.get('numero_tickets'),0),7,NAVY,align=TA_RIGHT)]
         for k,decimales in (('peso_kg',0),('ton_tickets',3),('ton_edp',3),('precio',2),
                            ('monto_edp',2),('monto_esperado',2),('diferencia',2)):

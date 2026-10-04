@@ -35,9 +35,9 @@ header {
   height: 80px;
   object-fit: contain;
   
-  padding: 2px 5px;
+  padding: 2px;
   background: white;
-  border-radius: 10%;
+  border-radius: 5%;
 }
 
 header h1 {
@@ -276,7 +276,8 @@ label {
 
 .leyenda {
   display: flex;
-  gap: 20px;
+  flex-wrap: wrap;
+  gap: 8px 20px;
   font-size: 12px;
   padding: 13px 20px 6px;
   color: var(--gris);

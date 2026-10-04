@@ -20,6 +20,7 @@ def crear_pdf_auditoria(muestra):
                 Spacer(1, 12)]
     comprobados = sum(t['comprobado'] for t in muestra['tickets'])
     for etiqueta, valor in [('Excel', muestra['archivo']), ('Hoja', muestra['hoja']),
+                            ('Ítem', muestra.get('item') or ('1.1' if clave(muestra['hoja']) == '11' else '2.5.a')),
                             ('Muestra', muestra['id']), ('Creada el', muestra['creado']),
                             ('Último cambio', muestra['actualizado']),
                             ('Selección', ('Manual' if muestra.get('modo') == 'manual' else 'Aleatoria sin repetir filas') +
@@ -45,9 +46,11 @@ def crear_pdf_auditoria(muestra):
         filas = [[par('Campo / celda', 9, NAVY, True), par('Información del EDP', 9, NAVY, True)]]
         for campo in ticket['campos']:
             valor = campo['valor'] or '(vacío)'
+            if campo.get('unidad') == 't' and campo['valor']:
+                valor += ' t'
             if campo['sin_resultado']:
                 valor = 'Sin resultado guardado en Excel'
-            if campo['formula'] and not clave(campo['nombre']).startswith('PESOTOTAL'):
+            if campo['formula'] and campo.get('unidad') != 't' and not clave(campo['nombre']).startswith('PESOTOTAL'):
                 valor += '\nFórmula: ' + campo['formula']
             filas.append([par(f'{campo["nombre"]} [{campo["celda"]}]', 9), par(valor, 9, NAVY)])
         tabla = Table(filas, colWidths=[ancho * .37, ancho * .63], repeatRows=1, splitInRow=1)

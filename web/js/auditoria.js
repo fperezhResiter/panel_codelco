@@ -4,6 +4,7 @@
   const meses = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
   const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[c]));
   const fecha = v => new Date(v).toLocaleString('es-CL');
+  const respaldoEsperado = unidad => unidad === 'Andina' ? '1.1 Retiro RINSP.pdf' : '2.5a TICKET INTERNO.pdf';
   let catalogo = {fuentes: [], muestras: [], unidades: []}, muestra = null, ocupado = false;
   let listaTickets = null;
   const tieneRespaldo = t => Boolean(t?.documentos.length || muestra?.respaldo_edp);
@@ -108,14 +109,15 @@
     $('kpi-pendientes').textContent = muestra.tickets.length - comprobados;
     $('muestra-titulo').textContent = `${muestra.unidad} · ${muestra.periodo} · EDP ${muestra.edp}`;
     $('muestra-fecha').textContent = `${muestra.modo === 'manual' ? 'Ticket seleccionado manualmente' : 'Muestra aleatoria'} · Creada: ${fecha(muestra.creado)} · Revisión ${muestra.id.slice(0,8)} · Último cambio: ${fecha(muestra.actualizado)}`;
-    $('muestra-origen').textContent = `${muestra.archivo} → ${muestra.hoja}`;
+    $('muestra-origen').textContent = `${muestra.archivo} → Hoja ${muestra.hoja} · Ítem ${muestra.item || (muestra.unidad === 'Andina' ? '1.1' : '2.5.a')}`;
+    $('poblacion-hoja').textContent = `Tickets de la hoja ${muestra.hoja}`;
     $('muestra-avisos').innerHTML = muestra.avisos.map(a => `<p class="observaciones">${esc(a)}</p>`).join('');
-    $('respaldo-edp').innerHTML = muestra.respaldo_edp ? `<p class="respaldo-disponible"><strong>Respaldo del EDP disponible:</strong> <a href="/api/auditoria/respaldo-edp?id=${encodeURIComponent(muestra.id)}" download>${esc(muestra.respaldo_edp.nombre)}</a>. Puedes comprobar los tickets sin subir otro archivo. ${muestra.respaldo_edp.guardado ? 'Se conserva una copia del PDF utilizado en esta revisión.' : 'Encontrado en la carpeta del EDP.'}</p>` : '<p class="nota-guardado">No se encontró 2.5a TICKET INTERNO.pdf para esta revisión. Adjunta un respaldo por ticket para habilitar la casilla.</p>';
+    $('respaldo-edp').innerHTML = muestra.respaldo_edp ? `<p class="respaldo-disponible"><strong>Respaldo del EDP disponible:</strong> <a href="/api/auditoria/respaldo-edp?id=${encodeURIComponent(muestra.id)}" download>${esc(muestra.respaldo_edp.nombre)}</a>. Puedes comprobar los tickets sin subir otro archivo. ${muestra.respaldo_edp.guardado ? 'Se conserva una copia del PDF utilizado en esta revisión.' : 'Encontrado en la carpeta del EDP.'}</p>` : `<p class="nota-guardado">No se encontró ${esc(respaldoEsperado(muestra.unidad))} para esta revisión. Adjunta un respaldo por ticket para habilitar la casilla.</p>`;
     $('tickets-auditoria').innerHTML = muestra.tickets.map((t,i) => `
       <article class="tarjeta ticket-auditoria" aria-labelledby="ticket-${t.fila}">
         <div class="titulo"><div><p class="eyebrow">TICKET ${i+1} DE ${muestra.tickets.length} · FILA EXCEL ${t.fila}</p><h3 id="ticket-${t.fila}">Ticket ${esc(t.ticket || 'sin número')}</h3></div>
           <span class="semaforo ${t.comprobado ? 'verde' : 'amarillo'}">${t.comprobado ? 'Comprobado manualmente' : 'Pendiente de comprobación'}</span></div>
-        <div class="contenido ticket-contenido"><dl class="detalle-datos">${t.campos.map(c => `<div><dt>${esc(c.nombre)} <small>[${esc(c.celda)}]</small></dt><dd>${c.sin_resultado ? 'Sin resultado guardado' : esc(c.valor || '—')}</dd>${c.formula && !/peso\s*total/i.test(c.nombre) ? `<small class="formula-ticket">Fórmula: ${esc(c.formula)}</small>` : ''}</div>`).join('')}</dl>
+        <div class="contenido ticket-contenido"><dl class="detalle-datos">${t.campos.map(c => `<div><dt>${esc(c.nombre)} <small>[${esc(c.celda)}]</small></dt><dd>${c.sin_resultado ? 'Sin resultado guardado' : esc(c.valor ? c.valor + (c.unidad === 't' ? ' t' : '') : '—')}</dd>${c.formula && c.unidad !== 't' && !/peso\s*total/i.test(c.nombre) ? `<small class="formula-ticket">Fórmula: ${esc(c.formula)}</small>` : ''}</div>`).join('')}</dl>
           <section class="respaldo-ticket" aria-label="Respaldos del ticket ${esc(t.ticket)}"><h4>Documentos de respaldo</h4>
             <ul class="lista-respaldos">${t.documentos.length ? t.documentos.map(d => `<li><a href="/api/auditoria/documento?id=${encodeURIComponent(d.id)}" download>${esc(d.nombre)}</a><span>${Math.ceil(d.bytes/1024)} KB · ${esc(fecha(d.creado))}</span><button type="button" class="enlace" data-quitar="${esc(d.id)}" data-fila="${t.fila}" aria-label="Quitar ${esc(d.nombre)}">Quitar</button></li>`).join('') : '<li class="sin-respaldos">Todavía no hay documentos adjuntos.</li>'}</ul>
             <label>Adjuntar documentación de este ticket<input type="file" data-adjuntar="${t.fila}" multiple accept=".pdf,.png,.jpg,.jpeg,.webp,.tif,.tiff,.doc,.docx,.xls,.xlsx,.csv,.txt"></label>

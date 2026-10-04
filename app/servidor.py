@@ -23,9 +23,10 @@ class ServidorPanel(ThreadingHTTPServer):
         super().server_bind()
 
 
-def crear_handler(fuentes, carpeta_auditoria=None):
+def crear_handler(fuentes, carpeta_auditoria=None, base_datos=None):
     from .auditoria import Auditoria, crear_csv, MAX_SOLICITUD
     auditoria = Auditoria(fuentes, carpeta_auditoria or BASE / 'Datos' / 'Auditoria')
+    base_datos = Path(base_datos or BASE / 'Datos' / 'conciliacion.sqlite3')
 
     class Handler(BaseHTTPRequestHandler):
         def responder(self, status, contenido, tipo, descarga=None):
@@ -53,12 +54,17 @@ def crear_handler(fuentes, carpeta_auditoria=None):
                 self.responder(200, contenido, tipo)
             elif url.path in API_RUTAS:
                 try:
-                    datos = API_RUTAS[url.path](fuentes, parse_qs(url.query))
+                    datos = API_RUTAS[url.path](base_datos, parse_qs(url.query))
                     self.responder(200, json.dumps(datos, ensure_ascii=False, allow_nan=False).encode(), 'application/json; charset=utf-8')
                 except Exception as error:
                     self.log_error('Error de lectura: %s', error)
-                    mensaje = 'No se pudieron leer las fuentes. Revisa su disponibilidad local y los permisos de la carpeta.'
-                    self.responder(500, json.dumps({'error': mensaje}).encode(), 'application/json; charset=utf-8')
+                    if isinstance(error, (FileNotFoundError, ValueError)):
+                        mensaje = str(error)
+                        estado = 503
+                    else:
+                        mensaje = 'No se pudo leer la base de datos local. Revisa que Datos/conciliacion.sqlite3 esté disponible.'
+                        estado = 500
+                    self.responder(estado, json.dumps({'error': mensaje}, ensure_ascii=False).encode(), 'application/json; charset=utf-8')
             else:
                 self.responder(404, b'No encontrado', 'text/plain; charset=utf-8')
 
@@ -165,15 +171,19 @@ def main():
     parser.add_argument('--puerto', type=int, default=8765)
     parser.add_argument('--auditorias', type=Path, default=BASE / 'Datos' / 'Auditoria',
                         help='Carpeta persistente de muestras y respaldos de auditoría.')
+    parser.add_argument('--bd', type=Path, default=BASE / 'Datos' / 'conciliacion.sqlite3',
+                        help='Base SQLite del panel de estados de pago y toneladas.')
     args = parser.parse_args()
     try:
-        servidor = ServidorPanel(('127.0.0.1', args.puerto), crear_handler(args.fuentes.resolve(), args.auditorias.resolve()))
+        servidor = ServidorPanel(('127.0.0.1', args.puerto), crear_handler(
+            args.fuentes.resolve(), args.auditorias.resolve(), args.bd.resolve()))
     except OSError as error:
         print(f'No se pudo iniciar el panel en el puerto {args.puerto}: {error}', flush=True)
         print('Detén la otra instancia o utiliza --puerto 8766.', flush=True)
         raise SystemExit(1)
     print(f'Panel disponible en http://127.0.0.1:{servidor.server_address[1]} | Ctrl+C para detener', flush=True)
     print(f'Fuentes: {args.fuentes.resolve()}', flush=True)
+    print(f'Base de datos: {args.bd.resolve()}', flush=True)
     try:
         servidor.serve_forever()
     except KeyboardInterrupt:

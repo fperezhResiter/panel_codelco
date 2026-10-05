@@ -62,16 +62,22 @@ def par(texto, tam=8, color=GRAY, bold=False, align=TA_LEFT):
 
 def grafico(registros, campo, comparado, titulo, dinero=False):
     ancho = (ANCHO - 18) / 2
-    alto = 34 + len(registros) * 26
+    alto = 48 + len(registros) * 26
     dibujo = Drawing(ancho, alto)
     dibujo.add(String(10, alto-16, titulo, fontName='Helvetica-Bold', fontSize=10, fillColor=NAVY))
-    for x, color, texto in ((10,BLUE,'EDP'),(65,GREEN,'Esperado' if dinero else 'Tickets')):
-        dibujo.add(Rect(x,alto-31,7,7,fillColor=color,strokeColor=None))
-        dibujo.add(String(x+11,alto-30,texto,fontName='Helvetica',fontSize=7,fillColor=GRAY))
+    leyenda = (
+        (BLUE, 'EDP: monto declarado en el estado de pago.' if dinero else
+         'EDP: toneladas declaradas en el estado de pago.'),
+        (GREEN, 'Esperado: precio por tonelada × toneladas de tickets.' if dinero else
+         'Tickets: suma de toneladas de los tickets incluidos.'))
+    for i, (color, texto) in enumerate(leyenda):
+        y = alto - 31 - i * 12
+        dibujo.add(Rect(10,y,7,7,fillColor=color,strokeColor=None))
+        dibujo.add(String(21,y+1,texto,fontName='Helvetica',fontSize=7,fillColor=GRAY))
     maximo = max([abs(r[k]) for r in registros for k in (campo,comparado)] + [1])
     inicio, largo = 112, ancho - 112 - 97
     for i,r in enumerate(registros):
-        y = alto - 46 - i * 26
+        y = alto - 60 - i * 26
         etiqueta = f"{r.get('mes_nombre') or r.get('periodo') or '-'} {r.get('anio') or ''}"
         dibujo.add(String(10,y,etiqueta[:30],fontName='Helvetica-Bold',fontSize=7.5,fillColor=NAVY))
         dibujo.add(String(10,y-10,f"{r.get('unidad') or '-'} / EDP {r.get('edp') or '-'}"[:34],fontName='Helvetica',fontSize=6.5,fillColor=GRAY))
@@ -98,7 +104,7 @@ def crear_pdf(datos):
                 Spacer(1,7)]
     filtros = datos.get('filtros',{})
     seleccion = ' / '.join(f'{k}: {v}' for k,v in filtros.items()) or 'Todos los EDP'
-    historia += [par(seleccion,8,NAVY), par('Última lectura: '+str(datos.get('actualizado','No disponible')),7),
+    historia += [par(seleccion,8,NAVY),
                  par('Monto esperado = precio por tonelada × toneladas de tickets.',8,NAVY),
                  par('Andina: Cantidad (t) de hoja 1.1 y Precio de Avance físico. El Salvador: Peso Total (kg) ÷ 1.000 y Precio Modificación N.º 1.',7),
                  Spacer(1,5)]
@@ -163,8 +169,8 @@ def crear_pdf(datos):
         canvas.saveState()
         canvas.setFillColor(colors.white); canvas.rect(0,alto-48,ancho,48,fill=1,stroke=0)
         root = Path(__file__).resolve().parent.parent
-        resiter = ImageReader(str(root / 'logo_sin_fondo_resiter.png'))
-        codelco = ImageReader(str(root / 'logo_sin_fondo_codelco.png'))
+        resiter = ImageReader(str(root / 'web' / 'img' / 'logo_sin_fondo_resiter.png'))
+        codelco = ImageReader(str(root / 'web' / 'img' / 'logo_sin_fondo_codelco.png'))
         canvas.drawImage(resiter,23,alto-40,width=42,height=32,preserveAspectRatio=True,anchor='c',mask='auto')
         canvas.drawImage(codelco,ancho-105,alto-40,width=82,height=32,preserveAspectRatio=True,anchor='c',mask='auto')
         canvas.setFillColor(NAVY); canvas.setFont('Helvetica',9); canvas.drawRightString(ancho-116,alto-28,'Reporte Codelco')

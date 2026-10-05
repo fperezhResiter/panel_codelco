@@ -1,13 +1,13 @@
 #!/bin/bash
 
-cd "$(dirname "$0")" || {
+cd "$(dirname "$0")/../.." || {
     echo "ERROR: No se pudo acceder a la carpeta del panel."
     read -p "Presiona Enter para cerrar..."
     exit 1
 }
 
-if [ ! -f "requirements.txt" ] || \
-   [ ! -f "reportabilidad.py" ] || \
+if [ ! -f "config/requirements.txt" ] || \
+   [ ! -f "app/reportabilidad.py" ] || \
    [ ! -f "app/servidor.py" ]; then
     echo "ERROR: Faltan archivos del portal."
     read -p "Presiona Enter para cerrar..."
@@ -37,7 +37,7 @@ $PYTHON_CMD -m pip install --upgrade pip
 
 echo
 echo "Instalando dependencias..."
-$PYTHON_CMD -m pip install -r requirements.txt
+$PYTHON_CMD -m pip install -r "config/requirements.txt"
 
 if [ $? -ne 0 ]; then
     echo
@@ -48,6 +48,6 @@ fi
 
 echo
 echo "Preparacion completada."
-echo "Para abrir el portal ejecuta Iniciar_Panel_MAC.command"
+echo "Para abrir el portal ejecuta scripts/mac/Iniciar_Panel_MAC.command"
 
 read -p "Presiona Enter para cerrar..."

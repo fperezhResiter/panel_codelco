@@ -99,6 +99,58 @@ class ConciliacionTests(unittest.TestCase):
         self.libro.valores['RES.NO PELIGROSOS']['C4']=None
         self.assertIsNone(leer_tickets(self.libro)[0])
 
+    def test_id_minimiza_sustituye_numero_ticket_si_falta_columna(self):
+        hoja = self.libro.valores['RES.NO PELIGROSOS']
+        hoja['C2'] = 'ID MINIMIZA'
+        peso, tickets, ref, errores, avisos = leer_tickets(self.libro)
+        self.assertEqual(peso, Decimal(3000))
+        self.assertEqual(len(tickets), 2)
+        self.assertEqual(tickets[0]['ticket'], '0')
+        self.assertEqual(ref['identificador'], 'ID MINIMIZA')
+        self.assertFalse(errores)
+        self.assertTrue(any('Se usa ID MINIMIZA' in aviso for aviso in avisos))
+
+    def test_id_minimiza_faltante_sigue_bloqueando_total(self):
+        hoja = self.libro.valores['RES.NO PELIGROSOS']
+        hoja['C2'] = 'ID MINIMIZA'
+        hoja['C4'] = None
+        peso, tickets, _, errores, _ = leer_tickets(self.libro)
+        self.assertIsNone(peso)
+        self.assertEqual(len(tickets), 2)
+        self.assertTrue(any('Fila 4: falta ID MINIMIZA' in error for error in errores))
+
+    def test_id_minimiza_sin_tabla_respeta_limite_total(self):
+        hoja = self.libro.valores['RES.NO PELIGROSOS']
+        hoja['C2'] = 'ID MINIMIZA'
+        del hoja.tables['Tickets']
+        self.assertEqual(leer_tickets(self.libro)[0], Decimal(3000))
+
+    def test_con_ticket_e_id_minimiza_usa_numero_ticket(self):
+        hoja = self.libro.valores['RES.NO PELIGROSOS']
+        hoja['E2'] = 'ID MINIMIZA'
+        hoja['E3'] = 999
+        self.assertEqual(leer_tickets(self.libro)[1][0]['ticket'], '0')
+
+    def test_actualiza_salvador_aunque_el_excel_no_cambie(self):
+        with tempfile.TemporaryDirectory() as temp:
+            raiz = Path(temp)
+            carpeta = raiz / 'Codelco El Salvador' / '2026 -05 EDP 47'
+            carpeta.mkdir(parents=True)
+            ruta = carpeta / 'EDP.xlsx'
+            ruta.touch()
+            stat = ruta.stat()
+            relativa = ruta.relative_to(raiz).as_posix()
+            firma = (stat.st_size, stat.st_mtime_ns)
+            antiguo = {'unidad': 'El Salvador', 'version_lectura': 'salvador-2.5.a-v2'}
+            with patch('app.reportes.FuenteExcel', return_value=self.libro) as abrir:
+                reporte = crear_reporte(raiz, {relativa: (firma, antiguo)}, {relativa: firma})
+            abrir.assert_called_once()
+            registro = reporte['registros'][0]
+            self.assertEqual(registro['estado'], 'cuadra', registro['errores'])
+            with patch('app.reportes.FuenteExcel', side_effect=AssertionError('Debe reutilizar la lectura actual')):
+                reutilizado = crear_reporte(raiz, {relativa: (firma, registro)}, {relativa: firma})
+            self.assertEqual(reutilizado['registros'][0]['estado'], 'cuadra')
+
     def test_monetario_y_toneladas_se_comparan_independientemente(self):
         correcto = comparar(Decimal(100),Decimal(3),Decimal('300.000000006'),Decimal(3000))
         self.assertEqual(correcto['estado'],'cuadra')

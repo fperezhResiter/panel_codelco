@@ -15,6 +15,7 @@ UNIDADES = ('Andina', 'El Salvador')
 PATRON_DETALLE = r'DETALLEDEIMPUTACIONES(?:(?:EDP|EP)?N?O?\d+)?'
 PATRON_RESIDUOS = r'RESN OPELIGROSOS?'.replace(' ', '')
 ERROR_EDP_DUPLICADO = 'Hay más de un Excel para la misma unidad, período y EDP. Deja una única versión para conciliar.'
+VERSIONES_LECTURA = {'Andina': 'andina-1.1-v2', 'El Salvador': 'salvador-2.5.a-v4'}
 
 
 def metadatos(ruta, raiz):
@@ -70,12 +71,19 @@ def leer_imputacion(libro, edp):
 
 def limites_tickets(hoja, en_toneladas=False, formulas=None):
     candidatos = []
+    candidatos_minimiza = []
     nombres_peso = ('CANTIDAD', 'CANTIDADTON', 'CANTIDADTONELADAS') if en_toneladas else ('PESOTOTAL', 'PESOTOTALKG', 'PESOTOTALKGS')
     for fila in hoja.iter_rows(max_row=min(hoja.max_row, 60)):
         pesos = [c for c in fila if clave(c.value) in nombres_peso]
         tickets = [c for c in fila if 'TICKET' in clave(c.value)]
         if len(pesos) == 1 and len(tickets) == 1:
             candidatos.append((fila[0].row, pesos[0].column, tickets[0].column))
+        elif not en_toneladas and len(pesos) == 1 and not tickets:
+            minimiza = [c for c in fila if clave(c.value) == 'IDMINIMIZA']
+            if len(minimiza) == 1:
+                candidatos_minimiza.append((fila[0].row, pesos[0].column, minimiza[0].column))
+    if not candidatos:
+        candidatos = candidatos_minimiza
     cabecera, peso, ticket = unico(candidatos, 'No se identifica una tabla única con Ticket y ' +
                                  ('Cantidad (toneladas).' if en_toneladas else 'Peso Total (kg).'))
     tablas = []
@@ -119,8 +127,14 @@ def leer_tickets(libro, unidad=None):
     fecha_col = encabezados.get('FECHA')
     retiro_col = next((col for k, col in encabezados.items() if k == 'LUGARDERETIRO' or k.startswith('PUNTODERETIRO')), None)
     residuos_col = next((col for k, col in encabezados.items() if k.startswith(('TIPODERESIDUO', 'TIPORESIDUO'))), None)
+    if residuos_col is None and en_toneladas:
+        residuos_col = next((col for k, col in encabezados.items() if k.startswith(
+            ('TIPODEPRODUCTO', 'TIPOPRODUCTO')) or k == 'PRODUCTO'), None)
     total = Decimal(0)
     tickets, errores, avisos, ids = [], [], [], []
+    usa_minimiza = clave(hoja.cell(inicio, ticket_col).value) == 'IDMINIMIZA'
+    if usa_minimiza:
+        avisos.append('Se usa ID MINIMIZA como número de ticket porque la hoja no tiene columna N.º Ticket.')
     for fila in range(inicio + 1, fin + 1):
         if not any(c.value is not None for c in hoja[fila]):
             continue
@@ -130,7 +144,8 @@ def leer_tickets(libro, unidad=None):
             continue
         id_ticket = hoja.cell(fila, ticket_col).value
         if id_ticket is None or str(id_ticket).strip() == '':
-            errores.append(f'Fila {fila}: falta el número de ticket.')
+            errores.append(f'Fila {fila}: falta ID MINIMIZA (usado como número de ticket).' if usa_minimiza
+                           else f'Fila {fila}: falta el número de ticket.')
         else:
             ids.append(str(id_ticket).strip())
         try:
@@ -160,6 +175,8 @@ def leer_tickets(libro, unidad=None):
         avisos.append('Hay pesos negativos; se incluyen con su signo.')
     referencia = {'hoja': hoja.title, 'rango': f'{get_column_letter(peso_col)}{inicio + 1}:{get_column_letter(peso_col)}{fin}',
                   'tabla': tabla, 'unidad': 't' if en_toneladas else 'kg'}
+    if usa_minimiza:
+        referencia.update(identificador='ID MINIMIZA', columna_identificador=get_column_letter(ticket_col))
     return total if not errores else None, tickets, referencia, errores, avisos
 
 
@@ -195,7 +212,7 @@ def crear_reporte(raiz, reutilizables=None, firmas=None):
             guardado = reutilizables.get(relativa)
             firma_actual = firmas.get(relativa)
             if (guardado and firma_actual is not None and guardado[0] == firma_actual and
-                    (guardado[1].get('unidad') != 'Andina' or guardado[1].get('version_lectura') == 'andina-1.1-v1')):
+                    guardado[1].get('version_lectura') == VERSIONES_LECTURA.get(guardado[1].get('unidad'))):
                 registro = deepcopy(guardado[1])
                 registro.setdefault('item', '1.1' if registro.get('unidad') == 'Andina' else '2.5.a')
                 if not any('No se pudo leer el archivo (' in str(e) for e in registro.get('errores', [])):
@@ -218,20 +235,22 @@ def crear_reporte(raiz, reutilizables=None, firmas=None):
             try:
                 registro.update(metadatos(ruta, raiz))
                 registro['item'] = '1.1' if registro['unidad'] == 'Andina' else '2.5.a'
-                registro['version_lectura'] = 'andina-1.1-v1' if registro['unidad'] == 'Andina' else 'salvador-2.5.a-v1'
+                registro['version_lectura'] = VERSIONES_LECTURA[registro['unidad']]
                 if ruta.suffix.lower() == '.xls':
                     raise ValueError('Formato .xls no compatible. Guarda una copia en .xlsx.')
                 libro = FuenteExcel(ruta)
-                valores, refs, periodo_pago = (leer_avance_andina(libro) if registro['unidad'] == 'Andina'
-                                               else leer_imputacion(libro, registro['edp']))
-                registro.update({k: float(v) for k, v in valores.items()})
-                registro['referencias'] = refs
-                registro['periodo_pago'] = periodo_pago
+                # Guardar tickets aun cuando falle la imputación: densidades depende de
+                # peso y residuo, no de la conciliación financiera del EDP.
                 peso, tickets, ref, errores, advertencias = leer_tickets(libro, registro['unidad'])
                 registro['tickets'] = tickets
                 registro['referencias']['peso'] = ref
                 registro['errores'].extend(errores)
                 registro['avisos'].extend(advertencias)
+                valores, refs, periodo_pago = (leer_avance_andina(libro) if registro['unidad'] == 'Andina'
+                                               else leer_imputacion(libro, registro['edp']))
+                registro.update({k: float(v) for k, v in valores.items()})
+                registro['referencias'].update(refs)
+                registro['periodo_pago'] = periodo_pago
                 if peso is not None:
                     registro.update(comparar(valores['precio'], valores['ton_edp'], valores['monto_edp'], peso))
             except Exception as exc:

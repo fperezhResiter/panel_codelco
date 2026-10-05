@@ -1,6 +1,6 @@
 #!/bin/bash
 
-cd "$(dirname "$0")" || {
+cd "$(dirname "$0")/../.." || {
     echo "ERROR: No se pudo acceder a la carpeta del panel."
     read -p "Presiona Enter para cerrar..."
     exit 1
@@ -25,7 +25,7 @@ $PYTHON_CMD -c "import openpyxl, reportlab" >/dev/null 2>&1
 
 if [ $? -ne 0 ]; then
     echo "ERROR: Faltan dependencias."
-    echo "Ejecuta Iniciar_Primera_vez_MAC.command"
+    echo "Ejecuta scripts/mac/Iniciar_Primera_vez_MAC.command"
     read -p "Presiona Enter para cerrar..."
     exit 1
 fi
@@ -39,6 +39,6 @@ echo "Mantén esta ventana abierta."
 echo "Para detener el servidor presiona Control + C."
 echo
 
-$PYTHON_CMD reportabilidad.py "$@"
+$PYTHON_CMD -B -m app.reportabilidad "$@"
 
 read -p "Presiona Enter para cerrar..."

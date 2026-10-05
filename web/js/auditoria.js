@@ -5,7 +5,7 @@
   const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[c]));
   const fecha = v => new Date(v).toLocaleString('es-CL');
   const respaldoEsperado = unidad => unidad === 'Andina' ? '1.1 Retiro RINSP.pdf' : '2.5a TICKET INTERNO.pdf';
-  let catalogo = {fuentes: [], muestras: [], unidades: []}, muestra = null, ocupado = false;
+  let catalogo = {fuentes: [], muestras: [], unidades: [], estados_pago: []}, muestra = null, ocupado = false;
   let listaTickets = null;
   const tieneRespaldo = t => Boolean(t?.documentos.length || muestra?.respaldo_edp);
 
@@ -29,6 +29,8 @@
     $('revisar-ticket').disabled = ocupado || !listaTickets || !$('ticket-elegido').value;
     $('historial').disabled = ocupado || !$('historial').value;
     $('generar-pdf').disabled = $('exportar').disabled = ocupado || !muestra;
+    $('pdf-unidad').disabled = ocupado || !catalogo.estados_pago.some(e => e.unidad === $('unidad').value);
+    $('descargar-compilado').disabled = ocupado || !catalogo.estados_pago.some(coincide);
     document.querySelectorAll('[data-comprobar]').forEach(n => {
       n.disabled = ocupado || !tieneRespaldo(muestra?.tickets.find(t => t.fila === Number(n.dataset.comprobar)));
     });
@@ -61,6 +63,7 @@
     }
     opciones('fuente', fuentes.map(f => [f.id, `EDP ${f.edp} · ${f.nombre} · ${f.origen}`]), preferida?.id || $('fuente').value, 'Sin Excel para este período');
     actualizarHistorial();
+    renderizarCobertura();
   }
   function limpiarTickets() {
     listaTickets = null;
@@ -77,7 +80,8 @@
   function coincide(f) { return f.unidad === $('unidad').value && String(f.anio) === $('anio').value && String(f.mes) === $('mes').value; }
   function actualizarHistorial(preferida) {
     const registros = catalogo.muestras.filter(coincide).filter(m => !$('fuente').value || m.fuente === $('fuente').value);
-    opciones('historial', registros.map(m => [m.id, `${fecha(m.creado)} · EDP ${m.edp} · ${m.cantidad} tickets · ${m.comprobados} comprobados · ${m.id.slice(0,8)}`]), preferida, 'Sin muestras guardadas');
+    const vigentes = new Set(catalogo.estados_pago.map(e => e.muestra_vigente));
+    opciones('historial', registros.map(m => [m.id, `${fecha(m.creado)} · EDP ${m.edp} · ${m.cantidad} tickets · ${m.comprobados} comprobados · ${vigentes.has(m.id) ? 'Vigente' : 'Histórica'} · ${m.id.slice(0,8)}`]), preferida, 'Sin muestras guardadas');
   }
   async function abrirSeleccion() {
     muestra = null; renderizar();
@@ -85,19 +89,58 @@
     renderizar();
   }
   async function cargar(preferida = null) {
-    catalogo = await consultar('');
+    const nuevo = await consultar('');
+    if (!Array.isArray(nuevo.estados_pago)) throw new Error('Reinicia Iniciar_Panel para cargar el gráfico y el reporte de unidad actualizados.');
+    catalogo = nuevo;
+    renderizarConexion();
     $('avisos').hidden = !catalogo.avisos.length;
     $('avisos').innerHTML = catalogo.avisos.map(v => `<p>${esc(v)}</p>`).join('');
     if (!preferida && !$('unidad').value) preferida = catalogo.fuentes[0] || catalogo.muestras[0];
     filtrar(0, preferida);
     await abrirSeleccion();
-    mensaje(`${catalogo.fuentes.length} Excel EDP disponibles. Las muestras y los respaldos se guardan automáticamente.`);
+    mensaje(`${catalogo.fuentes.length} Excel EDP disponibles. Las comprobaciones se guardan automáticamente en la BD.`);
   }
-  function recordarMuestra() {
+  async function recordarMuestra() {
     const resumen = {...muestra, cantidad:muestra.tickets.length, comprobados:muestra.tickets.filter(t => t.comprobado).length};
     catalogo.muestras = [resumen, ...catalogo.muestras.filter(m => m.id !== muestra.id)];
     actualizarHistorial(muestra.id);
     renderizar();
+    catalogo = await consultar('');
+    renderizarConexion();
+    actualizarHistorial(muestra.id);
+    renderizarCobertura();
+  }
+  function renderizarConexion() {
+    const conexion = catalogo.conexion_bd;
+    $('conexion-bd').textContent = conexion ? `${conexion.mensaje}. ${conexion.nota || ''}${conexion.pendientes ? ` ${conexion.pendientes} cambio(s) esperando sincronización de sus archivos.` : ''}` : 'Reinicia el servidor para conectar la BD compartida.';
+    $('conexion-bd').className = conexion?.pendientes ? 'observaciones' : 'respaldo-disponible';
+    $('conexion-bd').title = conexion?.carpeta || '';
+  }
+  async function actualizarChequeos() {
+    const actual = muestra?.id || $('historial').value;
+    catalogo = await consultar('');
+    renderizarConexion();
+    actualizarHistorial(actual);
+    renderizarCobertura();
+    if (muestra) {
+      muestra = await consultar('/muestra?id=' + encodeURIComponent(muestra.id));
+      renderizar();
+    } else if ($('historial').value) await abrirSeleccion();
+  }
+  function renderizarCobertura() {
+    const registros = catalogo.estados_pago;
+    const unidades = [...new Set([...catalogo.unidades, ...registros.map(e => e.unidad)])];
+    const maximo = Math.max(1, ...unidades.map(u => registros.filter(e => e.unidad === u).length));
+    $('grafico-chequeos').innerHTML = unidades.map(unidad => {
+      const edp = registros.filter(e => e.unidad === unidad);
+      return `<div class="barra-fila"><div class="barra-etiqueta"><strong>${esc(unidad)}</strong>${edp.length} EDP</div><div class="barras">${[['completo', 'Chequeo completo'], ['parcial', 'Chequeo parcial'], ['sin_revision', 'Sin revisión']].map(([clase, etiqueta]) => {
+        const n = edp.filter(e => e.estado_codigo === clase).length;
+        return `<div class="barra" aria-label="${esc(unidad)}: ${etiqueta}, ${n} EDP"><div class="barra-pista"><span class="barra-relleno ${clase}" style="width:${n / maximo * 100}%"></span></div><span>${etiqueta}: ${n}</span></div>`;
+      }).join('')}</div></div>`;
+    }).join('');
+    const seleccion = registros.filter(e => e.unidad === $('unidad').value);
+    $('alcance-unidad').textContent = `${$('unidad').value || 'Unidad'} · ${seleccion.length} EDP de todos los años y meses. El PDF incluye este resumen y todas sus revisiones guardadas.`;
+    $('estados-pago').innerHTML = seleccion.length ? seleccion.map(e => `<tr><td>${esc(e.periodo)}</td><td>${esc(e.edp)}</td><td>${e.revisiones}</td><td>${e.comprobados}</td><td>${e.pendientes}</td><td><span class="semaforo ${esc(e.color)}">${esc(e.estado)}</span></td></tr>`).join('') : '<tr><td colspan="6" class="vacio">Sin EDP para esta unidad.</td></tr>';
   }
   function renderizar() {
     $('revision').hidden = !muestra; $('sin-muestra').hidden = Boolean(muestra);
@@ -144,7 +187,7 @@
     const respuesta = await api('/reporte.' + extension + '?id=' + encodeURIComponent(muestra.id));
     const url = URL.createObjectURL(await respuesta.blob());
     const enlace = document.createElement('a');
-    enlace.href = url; enlace.download = `auditoria-${muestra.unidad}-${muestra.periodo}-EDP${muestra.edp}-${muestra.id.slice(0,8)}.${extension}`;
+    enlace.href = url; enlace.download = decodeURIComponent(respuesta.headers.get('Content-Disposition').split("filename*=UTF-8''")[1]);
     document.body.appendChild(enlace); enlace.click(); enlace.remove();
     setTimeout(() => URL.revokeObjectURL(url), 60000);
     mensaje(`${extension.toUpperCase()} generado. Revisa las descargas del navegador.`);
@@ -158,7 +201,7 @@
   $('sortear').addEventListener('click', () => operar(async () => {
     mensaje('Leyendo el Excel y sorteando la muestra…');
     muestra = await consultar('/sortear', {fuente:$('fuente').value, cantidad:Number($('cantidad').value)});
-    recordarMuestra(); mensaje(`Muestra guardada: ${muestra.tickets.length} tickets de ${muestra.poblacion} registros.`);
+    await recordarMuestra(); mensaje(`Muestra guardada: ${muestra.tickets.length} tickets de ${muestra.poblacion} registros.`);
   }));
   $('listar-tickets').addEventListener('click', () => operar(async () => {
     limpiarTickets(); mensaje('Leyendo los tickets del EDP seleccionado…');
@@ -170,7 +213,7 @@
   $('revisar-ticket').addEventListener('click', () => operar(async () => {
     mensaje('Preparando el ticket seleccionado…');
     muestra = await consultar('/seleccionar', {fuente:listaTickets.fuente, fila:Number($('ticket-elegido').value), sha256:listaTickets.sha256});
-    recordarMuestra(); mensaje('Ticket seleccionado. Revisa la documentación y registra tu comprobación manual.');
+    await recordarMuestra(); mensaje('Ticket seleccionado. Revisa la documentación y registra tu comprobación manual.');
   }));
   $('tickets-auditoria').addEventListener('change', event => {
     const control = event.target;
@@ -182,7 +225,7 @@
           for (const archivo of archivos) {
             mensaje(`Guardando ${archivo.name}…`);
             muestra = await consultar('/adjuntar', {...await archivoJSON(archivo), muestra:muestra.id, fila:Number(control.dataset.adjuntar)});
-            guardados++; recordarMuestra();
+            guardados++; await recordarMuestra();
           }
           mensaje(`${guardados} documento(s) guardado(s). Ya puedes revisar los respaldos y marcar la casilla.`);
         } catch (error) { throw new Error(`${guardados} documento(s) guardado(s). ${error.message}`); }
@@ -193,7 +236,7 @@
       operar(async () => {
         try {
           muestra = await consultar('/comprobar', {muestra:muestra.id, fila:Number(control.dataset.comprobar), comprobado:marcado});
-          recordarMuestra(); mensaje('Comprobación manual guardada.');
+          await recordarMuestra(); mensaje('Comprobación manual guardada.');
         } catch (error) { control.checked = !marcado; throw error; }
       });
     }
@@ -203,10 +246,39 @@
     if (!boton) return;
     operar(async () => {
       muestra = await consultar('/quitar', {muestra:muestra.id, fila:Number(boton.dataset.fila), documento:boton.dataset.quitar});
-      recordarMuestra(); mensaje('Respaldo quitado. La comprobación de ese ticket quedó pendiente.');
+      await recordarMuestra(); mensaje('Respaldo quitado. La comprobación de ese ticket quedó pendiente.');
     });
   });
   $('generar-pdf').addEventListener('click', () => operar(() => descargar('pdf')));
   $('exportar').addEventListener('click', () => operar(() => descargar('csv')));
+  $('descargar-compilado').addEventListener('click', () => operar(async () => {
+    const parametros = new URLSearchParams();
+    ['unidad', 'anio', 'mes'].forEach(k => parametros.set(k, $(k).value));
+    mensaje('Preparando un PDF por EDP de la unidad, año y mes seleccionados…');
+    const respuesta = await api('/compilado.zip?' + parametros);
+    const url = URL.createObjectURL(await respuesta.blob());
+    const enlace = document.createElement('a');
+    enlace.href = url; enlace.download = decodeURIComponent(respuesta.headers.get('Content-Disposition').split("filename*=UTF-8''")[1]);
+    document.body.appendChild(enlace); enlace.click(); enlace.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    mensaje('Compilado ZIP generado con un PDF por EDP, incluidas las revisiones guardadas. Revisa las descargas del navegador.');
+  }));
+  $('pdf-unidad').addEventListener('click', () => operar(async () => {
+    const unidad = $('unidad').value;
+    mensaje(`Preparando reporte PDF completo de ${unidad}…`);
+    const respuesta = await api('/unidad.pdf?unidad=' + encodeURIComponent(unidad));
+    const url = URL.createObjectURL(await respuesta.blob());
+    const enlace = document.createElement('a');
+    enlace.href = url; enlace.download = decodeURIComponent(respuesta.headers.get('Content-Disposition').split("filename*=UTF-8''")[1]);
+    document.body.appendChild(enlace); enlace.click(); enlace.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    mensaje(`PDF completo de ${unidad} generado. Revisa las descargas del navegador.`);
+  }));
   operar(() => cargar());
+  setInterval(() => {
+    if (!ocupado && !document.hidden && !document.activeElement?.matches('input, select')) operar(actualizarChequeos);
+  }, 15000);
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && !ocupado) operar(actualizarChequeos);
+  });
 })();

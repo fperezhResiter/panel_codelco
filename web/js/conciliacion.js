@@ -66,7 +66,7 @@
     grafico('grafico-monto', validos, 'monto_edp', 'monto_esperado', true);
     $('cantidad-registros').textContent = visibles.length + ' estados de pago';
     $('exportar').disabled = !visibles.length || cargando;
-    $('generar-pdf').disabled = !visibles.length || cargando || generandoPdf;
+    $('generar-pdf').disabled = $('descargar-compilado').disabled = !visibles.length || cargando || generandoPdf;
     $('filas').innerHTML = visibles.length ? visibles.map(r => {
       const [etiqueta, clase] = estados[r.estado], indice = datos.registros.indexOf(r);
       return '<tr><td><strong>' + escapar(r.unidad || 'Unidad no identificada') + '</strong><small>' +
@@ -119,7 +119,7 @@
     cargando = true;
     $('actualizar').disabled = true;
     $('exportar').disabled = true;
-    $('generar-pdf').disabled = true;
+    $('generar-pdf').disabled = $('descargar-compilado').disabled = true;
     $('actualizar').textContent = 'Cargando datos…';
     $('estado').className = '';
     $('estado').textContent = 'Cargando el reporte guardado…';
@@ -145,31 +145,31 @@
       $('actualizar').disabled = false;
       $('actualizar').textContent = 'Recargar datos';
       $('exportar').disabled = !visibles.length;
-      $('generar-pdf').disabled = !visibles.length || generandoPdf;
+      $('generar-pdf').disabled = $('descargar-compilado').disabled = !visibles.length || generandoPdf;
     }
   }
 
 
-  async function generarPdf() {
+  async function generarPdf(compilado = false) {
     if (!datos || !visibles.length || cargando || generandoPdf) return;
     generandoPdf = true;
-    $('generar-pdf').disabled = true;
-    $('generar-pdf').textContent = 'Generando PDF…';
+    const boton = $(compilado ? 'descargar-compilado' : 'generar-pdf');
+    $('generar-pdf').disabled = $('descargar-compilado').disabled = true;
+    boton.textContent = compilado ? 'Generando compilado…' : 'Generando PDF…';
     $('pdf-estado').hidden = false;
     $('pdf-estado').className = '';
-    $('pdf-estado').textContent = 'Preparando el reporte con los filtros seleccionados…';
+    $('pdf-estado').textContent = compilado ? 'Preparando un PDF por unidad, mes, año y EDP de la selección…' : 'Preparando el reporte con los filtros seleccionados…';
     // Se envía la instantánea visible; nunca se releen los Excel al exportar.
-    const campos = ['unidad','item','anio','mes_nombre','periodo','edp','estado','peso_kg','ton_tickets',
+    const campos = ['unidad','item','anio','mes','mes_nombre','periodo','edp','estado','peso_kg','ton_tickets',
       'ton_edp','precio','monto_edp','monto_esperado','diferencia','avisos','errores'];
     const nombres = ['Unidad','Año','Mes','EDP','Conciliación'];
     const seleccion = Object.fromEntries(filtros.map((id,i) => [nombres[i], $(id).selectedOptions[0].textContent]));
     const instantanea = {
-      actualizado: new Date(datos.actualizado).toLocaleString('es-CL'),
       filtros: seleccion, avisos: datos.avisos,
       registros: visibles.map(r => ({...Object.fromEntries(campos.map(k=>[k,r[k]])),numero_tickets:r.tickets.length}))
     };
     try {
-      const respuesta = await fetch('/api/reporte.pdf', {
+      const respuesta = await fetch(compilado ? '/api/conciliacion/compilado.zip' : '/api/reporte.pdf', {
         method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(instantanea)
       });
       if (!respuesta.ok) {
@@ -180,19 +180,19 @@
       const url = URL.createObjectURL(archivo);
       const enlace = document.createElement('a');
       enlace.href = url;
-      enlace.download = 'reporte-codelco-' + new Date().toISOString().slice(0,10) + '.pdf';
+      enlace.download = decodeURIComponent(respuesta.headers.get('Content-Disposition').split("filename*=UTF-8''")[1]);
       document.body.appendChild(enlace);
       enlace.click();
       enlace.remove();
       setTimeout(()=>URL.revokeObjectURL(url),60000);
-      $('pdf-estado').textContent = 'PDF generado con ' + instantanea.registros.length + ' EDP. Revisa las descargas del navegador.';
+      $('pdf-estado').textContent = (compilado ? 'Compilado ZIP generado con PDF separados para ' : 'PDF generado con ') + instantanea.registros.length + ' EDP. Revisa las descargas del navegador.';
     } catch (error) {
       $('pdf-estado').className = 'error';
-      $('pdf-estado').textContent = 'No se pudo generar el PDF. ' + error.message;
+      $('pdf-estado').textContent = 'No se pudo generar ' + (compilado ? 'el compilado. ' : 'el PDF. ') + error.message;
     } finally {
       generandoPdf = false;
-      $('generar-pdf').disabled = !visibles.length || cargando;
-      $('generar-pdf').textContent = 'Generar reporte PDF';
+      $('generar-pdf').disabled = $('descargar-compilado').disabled = !visibles.length || cargando;
+      boton.textContent = compilado ? 'Descargar compilado por unidad y mes' : 'Generar reporte PDF';
     }
   }
 
@@ -216,7 +216,8 @@
   $('limpiar').addEventListener('click',()=>{ filtros.forEach(id=>$(id).value=''); renderizar(); });
   $('actualizar').addEventListener('click',cargar);
   $('exportar').addEventListener('click',exportar);
-  $('generar-pdf').addEventListener('click',generarPdf);
+  $('generar-pdf').addEventListener('click', () => generarPdf());
+  $('descargar-compilado').addEventListener('click', () => generarPdf(true));
   $('filas').addEventListener('click',event=>{
     const boton = event.target.closest('[data-detalle]');
     if (boton) abrirDetalle(Number(boton.dataset.detalle));

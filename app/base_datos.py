@@ -7,8 +7,10 @@ from contextlib import closing
 from pathlib import Path
 
 from .reportes import crear_reporte
+from .densidades import importar_maestra
+from .estimaciones import estimar_residuos_faltantes
 
-VERSION_ESQUEMA = '1'
+VERSION_ESQUEMA = '2'
 EXTENSIONES_EXCEL = {'.xlsx', '.xlsm', '.xls'}
 
 
@@ -60,6 +62,8 @@ def actualizar_base_datos(fuentes, destino):
     destino.parent.mkdir(parents=True, exist_ok=True)
     firmas = _firmas_fuentes(fuentes)
     reporte = crear_reporte(fuentes, reutilizables=_reutilizables(destino), firmas=firmas)
+    maestra = importar_maestra(fuentes)
+    estimar_residuos_faltantes(reporte['registros'], maestra['materiales'])
     temporal = None
     try:
         descriptor, nombre = tempfile.mkstemp(prefix=destino.stem + '-', suffix='.sqlite3',
@@ -95,11 +99,19 @@ def actualizar_base_datos(fuentes, destino):
                         tamano INTEGER NOT NULL,
                         modificado INTEGER NOT NULL
                     );
+                    CREATE TABLE maestra_densidades (
+                        clave TEXT PRIMARY KEY,
+                        datos TEXT NOT NULL
+                    );
                 ''')
                 resumen = {k: v for k, v in reporte.items() if k != 'registros'}
                 conexion.execute('INSERT INTO resumen(id, datos) VALUES (1, ?)', (_json(resumen),))
                 conexion.execute('INSERT INTO metadatos(clave, valor) VALUES (?, ?)',
                                  ('version_esquema', VERSION_ESQUEMA))
+                conexion.execute('INSERT INTO metadatos(clave, valor) VALUES (?, ?)',
+                                 ('densidades', _json({k: v for k, v in maestra.items() if k != 'materiales'})))
+                conexion.executemany('INSERT INTO maestra_densidades(clave, datos) VALUES (?, ?)',
+                                     ((m['clave'], _json(m)) for m in maestra['materiales']))
                 conexion.executemany(
                     'INSERT INTO firmas_fuentes(archivo, tamano, modificado) VALUES (?, ?, ?)',
                     ((registro['archivo'], *firmas[registro['archivo']])
@@ -149,13 +161,13 @@ def leer_reporte(ruta):
     """Reconstruye el JSON que consume el panel sin abrir ni recorrer Excel."""
     ruta = Path(ruta)
     if not ruta.is_file():
-        raise FileNotFoundError('No existe la base de datos local. Ejecuta Actualizar_BD.bat (Windows) o Actualizar_BD_MAC.command (Mac).')
+        raise FileNotFoundError('No existe la base de datos local. Ejecuta Actualizar_BD.bat (Windows) o scripts/mac/Actualizar_BD_MAC.command (Mac).')
     with closing(sqlite3.connect(ruta)) as conexion:
         with conexion:
             version = conexion.execute(
                 'SELECT valor FROM metadatos WHERE clave = ?', ('version_esquema',)
             ).fetchone()
-            if not version or version[0] != VERSION_ESQUEMA:
+            if not version or version[0] not in ('1', VERSION_ESQUEMA):
                 raise ValueError('La base de datos no es compatible. Ejecuta Actualizar_BD para regenerarla.')
             fila = conexion.execute('SELECT datos FROM resumen WHERE id = 1').fetchone()
             if not fila:

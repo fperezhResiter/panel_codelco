@@ -14,8 +14,8 @@ from urllib.request import Request, urlopen
 from urllib.parse import urlsplit
 from openpyxl import Workbook
 from openpyxl.worksheet.table import Table
-from app.auditoria import Auditoria, crear_csv, leer_excel, MAX_ARCHIVO, MAX_SOLICITUD, decodificar, EXT_DOCUMENTOS
-from app.auditoria_pdf import crear_pdf_auditoria
+from app.auditoria import Auditoria, crear_csv, leer_excel, resumen_edp, MAX_ARCHIVO, MAX_SOLICITUD, decodificar, EXT_DOCUMENTOS
+from app.auditoria_pdf import crear_pdf_auditoria, crear_pdf_unidad
 from app.servidor import ServidorPanel, crear_handler
 
 
@@ -235,6 +235,129 @@ class AuditoriaTests(unittest.TestCase):
         self.assertEqual(respuesta['contenido'], pdf.read_bytes())
         pdf.unlink()
         with self.assertRaises(ValueError): self.a.modificar(cambio, 'comprobar')
+
+    def test_pdf_con_sufijo_edp_solo_habilita_el_periodo_y_servicio_correcto(self):
+        for fuente, archivo in ((self.fuente, self.archivo), self.agregar_andina()):
+            m = self.a.sortear({'fuente': fuente, 'cantidad': 3})
+            base = '1.1 Retiro RINSP' if m['unidad'] == 'Andina' else '2.5a TICKET INTERNO'
+            equivocado = archivo.parent / f'{base} (EDP {m["edp"] + 1}).pdf'
+            equivocado.write_bytes(b'%PDF-1.4\nOtro EDP')
+            self.assertIsNone(self.a.obtener(m['id'])['respaldo_edp'])
+            correcto = archivo.parent / f'{base} ( EDP {m["edp"]}).PDF'
+            correcto.write_bytes(b'%PDF-1.4\nEste EDP')
+            cambio = {'muestra': m['id'], 'fila': m['tickets'][0]['fila'], 'comprobado': True}
+            m = self.a.modificar(cambio, 'comprobar')
+            self.assertTrue(m['tickets'][0]['comprobado'])
+            self.assertFalse(m['tickets'][0]['documentos'])
+            self.assertEqual(m['respaldo_edp']['nombre'], correcto.name)
+            correcto.unlink()
+            self.assertEqual(self.a.documento_edp(m['id'])[1], b'%PDF-1.4\nEste EDP')
+
+    def test_cobertura_no_duplica_edp_y_actualiza_chequeo(self):
+        fuente_andina, _ = self.agregar_andina()
+        otro = self.fuentes / 'Codelco El Salvador' / '2026 -06 EDP 48'
+        otro.mkdir()
+        (otro / 'Otro.xlsx').write_bytes(excel())
+        # Una segunda versión de Excel no debe duplicar el EDP en el gráfico.
+        (self.archivo.parent / 'Version.xlsx').write_bytes(excel())
+        (self.archivo.parent / '2.5a TICKET INTERNO (EDP 47).pdf').write_bytes(b'%PDF-1.4\nEste EDP')
+        m = self.seleccionar()
+        segunda = self.seleccionar(4)
+        m_andina = self.a.sortear({'fuente': fuente_andina, 'cantidad': 3})
+        cambio = {'muestra': m['id'], 'fila': m['tickets'][0]['fila'], 'comprobado': True}
+        self.a.modificar(cambio, 'comprobar')
+        registros = self.a.catalogo()['estados_pago']
+        self.assertEqual(len(registros), 3)
+        edp = next(e for e in registros if e['unidad'] == 'El Salvador' and e['edp'] == 47)
+        self.assertEqual((edp['revisiones'], edp['comprobados'], edp['pendientes']), (2, 0, 1))
+        self.assertEqual(edp['muestra_vigente'], segunda['id'])
+        self.assertEqual((edp['estado_codigo'], edp['color']), ('sin_revision', 'rojo'))
+        self.assertFalse(edp['con_chequeo'])
+        self.assertEqual(len(edp['archivos']), 2)
+        self.a.modificar({**cambio, 'comprobado': False}, 'comprobar')
+        edp = next(e for e in self.a.catalogo()['estados_pago'] if e['unidad'] == 'El Salvador' and e['edp'] == 47)
+        self.assertFalse(edp['con_chequeo'])
+        self.assertEqual(edp['estado'], 'Sin revisión')
+        self.assertEqual((edp['estado_codigo'], edp['color']), ('sin_revision', 'rojo'))
+        self.a.modificar(cambio, 'comprobar')
+        self.a.modificar({'muestra': segunda['id'], 'fila': segunda['tickets'][0]['fila'], 'comprobado': True}, 'comprobar')
+        reporte = self.a.reporte_unidad('El Salvador')
+        self.assertEqual(len(reporte['estados_pago']), 2)
+        self.assertEqual(len(reporte['muestras']), 2)
+        self.assertTrue(all(x['unidad'] == 'El Salvador' for x in reporte['muestras']))
+        self.assertEqual(reporte['estados_pago'][0]['estado'], 'Chequeo completo')
+        self.assertEqual(reporte['estados_pago'][0]['color'], 'verde')
+        self.assertEqual(reporte['estados_pago'][1]['estado'], 'Sin revisión')
+        self.archivo.unlink()
+        (self.archivo.parent / 'Version.xlsx').unlink()
+        self.assertEqual(len(self.a.reporte_unidad('El Salvador')['estados_pago']), 2)
+        with self.assertRaises(ValueError): self.a.reporte_unidad('desconocida')
+        self.assertNotIn(m_andina['id'], [x['id'] for x in reporte['muestras']])
+
+    def test_revision_nueva_completa_no_suma_pendientes_del_historial(self):
+        (self.archivo.parent / '2.5a TICKET INTERNO.pdf').write_bytes(b'%PDF-1.4\nEste EDP')
+        antigua = self.sortear()
+        vigente = self.sortear()
+        for ticket in vigente['tickets']:
+            self.a.modificar({'muestra': vigente['id'], 'fila': ticket['fila'], 'comprobado': True}, 'comprobar')
+        edp = self.a.catalogo()['estados_pago'][0]
+        self.assertEqual((edp['tickets'], edp['comprobados'], edp['pendientes']), (3, 3, 0))
+        self.assertEqual((edp['estado_codigo'], edp['color']), ('completo', 'verde'))
+        self.assertEqual(edp['muestra_vigente'], vigente['id'])
+        self.assertEqual(edp['revisiones'], 2)
+        reporte = self.a.reporte_unidad('El Salvador')
+        self.assertEqual(reporte['estados_pago'][0], edp)
+        self.assertEqual({m['id'] for m in reporte['muestras']}, {antigua['id'], vigente['id']})
+        self.assertFalse(any(t['comprobado'] for t in self.a.obtener(antigua['id'])['tickets']))
+        # Editar el historial más tarde no sustituye la revisión vigente.
+        self.a.modificar({'muestra': antigua['id'], 'fila': antigua['tickets'][0]['fila'], 'comprobado': True}, 'comprobar')
+        self.assertEqual(self.a.catalogo()['estados_pago'][0], edp)
+        cambio = {'muestra': vigente['id'], 'fila': vigente['tickets'][0]['fila'], 'comprobado': False}
+        self.a.modificar(cambio, 'comprobar')
+        edp = self.a.catalogo()['estados_pago'][0]
+        self.assertEqual((edp['comprobados'], edp['pendientes'], edp['color']), (2, 1, 'amarillo'))
+        nueva = self.sortear()
+        edp = self.a.catalogo()['estados_pago'][0]
+        self.assertEqual((edp['comprobados'], edp['pendientes'], edp['color']), (0, 3, 'rojo'))
+        self.assertEqual(edp['muestra_vigente'], nueva['id'])
+        self.assertEqual(self.a.catalogo()['muestras'][0]['id'], nueva['id'])
+
+    def test_revision_vigente_independiente_del_orden_de_sincronizacion(self):
+        base = dict(unidad='El Salvador', periodo='2026-08', anio=2026, mes=8, edp=50,
+                    archivo='Agosto.xlsx', cantidad=3)
+        vieja = {**base, 'id': 'vieja', 'creado': '2026-10-05T10:59:59-03:00', 'comprobados': 0}
+        nueva = {**base, 'id': 'nueva', 'creado': '2026-10-05T14:00:00+00:00', 'comprobados': 3}
+        primero = resumen_edp([], [vieja, nueva])
+        self.assertEqual(primero, resumen_edp([], [nueva, vieja]))
+        self.assertEqual((primero[0]['muestra_vigente'], primero[0]['color']), ('nueva', 'verde'))
+        empate = {**nueva, 'id': 'z', 'comprobados': 1}
+        self.assertEqual(resumen_edp([], [nueva, empate]), resumen_edp([], [empate, nueva]))
+        self.assertEqual(resumen_edp([], [empate, nueva])[0]['color'], 'amarillo')
+
+    def test_pdf_unidad_incluye_periodos_sin_muestra_y_todos_los_campos(self):
+        self.agregar_andina()
+        otro = self.fuentes / 'Codelco El Salvador' / '2025 -12 EDP 42'
+        otro.mkdir()
+        (otro / 'Sin_revision.xlsx').write_bytes(excel())
+        (self.archivo.parent / '2.5a TICKET INTERNO (EDP 47).pdf').write_bytes(b'%PDF-1.4\nEste EDP')
+        m = self.seleccionar()
+        self.a.modificar({'muestra': m['id'], 'fila': m['tickets'][0]['fila'], 'comprobado': True}, 'comprobar')
+        contenido = crear_pdf_unidad(self.a.reporte_unidad('El Salvador'))
+        self.assertTrue(contenido.startswith(b'%PDF'))
+        r = self.solicitud_memoria('GET', '/api/auditoria/unidad.pdf?unidad=El%20Salvador')
+        self.assertEqual((r['status'], r['tipo']), (200, 'application/pdf'))
+        self.assertEqual(r['descarga'], 'el-salvador-varios-meses-2025-12-a-2026-05-edp-42-47-panel-auditoria-unidad.pdf')
+        for unidad in ('', 'Otro'):
+            self.assertEqual(self.solicitud_memoria('GET', '/api/auditoria/unidad.pdf?unidad=' + unidad)['status'], 400)
+        try:
+            from pypdf import PdfReader
+        except ImportError:
+            self.skipTest('pypdf opcional no disponible.')
+        textos = '\n'.join(p.extract_text() for p in PdfReader(BytesIO(contenido)).pages)
+        for esperado in ('2025-12', '2026-05', 'Sin revisiones guardadas', m['id'], m['sha256'],
+                         'Campo adicional', 'COMPROBADO MANUALMENTE', '2.5a TICKET INTERNO (EDP 47).pdf'):
+            self.assertIn(esperado, textos)
+        self.assertNotIn('Andina', textos)
 
     def test_adjuntos_30mb_en_ambos_modos_y_rechazo_superior(self):
         archivo = adjunto('respaldo.pdf', b'x' * MAX_ARCHIVO)

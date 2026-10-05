@@ -3,9 +3,9 @@ import argparse
 from pathlib import Path
 from time import perf_counter
 
-from app.base_datos import actualizar_base_datos
+from .base_datos import actualizar_base_datos
 
-BASE = Path(__file__).resolve().parent
+BASE = Path(__file__).resolve().parent.parent
 
 
 def main():
@@ -28,6 +28,23 @@ def main():
     incompletos = sum(r.get('estado') == 'incompleto' for r in reporte['registros'])
     print(f"Base actualizada: {args.bd.resolve()}", flush=True)
     print(f"{len(reporte['registros'])} EDP, {tickets} filas de tickets, {incompletos} EDP sin conciliar.", flush=True)
+    from .densidades import BANDAS_POR_UNIDAD, leer_densidades
+    densidades = leer_densidades(args.bd)
+    print(f"Densidades: {len(densidades['maestra']['materiales'])} materiales en AUX.", flush=True)
+    for unidad in BANDAS_POR_UNIDAD:
+        datos_unidad = leer_densidades(args.bd, {'unidad': unidad})
+        pendientes = sum(t['estado'] == 'sin_evaluar' for t in datos_unidad['tickets'])
+        print(f"  {unidad}: {len(datos_unidad['tickets'])} tickets, {pendientes} sin evaluar.", flush=True)
+    for aviso in densidades['maestra']['avisos']:
+        print(f'  - {aviso}', flush=True)
+    for registro in reporte['registros']:
+        if registro.get('estado') == 'incompleto':
+            print(f"Sin conciliar: {registro['archivo']}", flush=True)
+            errores = registro.get('errores', [])
+            for error in errores[:5]:
+                print(f'  - {error}', flush=True)
+            if len(errores) > 5:
+                print(f'  - Hay {len(errores) - 5} errores adicionales; consulta el detalle en el panel.', flush=True)
     print(f'Tiempo: {segundos:.1f} segundos.', flush=True)
 
 

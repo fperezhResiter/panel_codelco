@@ -28,7 +28,7 @@ if errorlevel 1 (
 )
 
 echo.
-%PYTHON_CMD% -B actualizar_BD.py %*
+%PYTHON_CMD% -B -m app.actualizar_BD %*
 if errorlevel 1 goto error
 
 echo.

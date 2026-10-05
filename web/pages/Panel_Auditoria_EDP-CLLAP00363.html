@@ -33,7 +33,7 @@
         <div id="grafico-chequeos" class="grafico" aria-live="polite"></div>
         <p id="alcance-unidad" class="nota-guardado"></p>
         <div class="scroll"><table><thead><tr><th>Período</th><th>EDP</th><th>Revisiones</th><th>Tickets chequeados</th><th>Tickets pendientes</th><th>Estado de la selección</th></tr></thead><tbody id="estados-pago"></tbody></table></div>
-        <p class="nota-guardado">Los conteos de tickets incluyen cada aparición en una revisión guardada. “Chequeo completo” se refiere a los tickets seleccionados, no a toda la población del EDP.</p>
+        <p class="nota-guardado">El estado y los conteos de tickets corresponden a la revisión más reciente de cada EDP. Las anteriores se conservan en el historial y el PDF. “Chequeo completo” se refiere a los tickets seleccionados, no a toda la población del EDP.</p>
       </div>
     </section>
     <section class="tarjeta filtros" aria-label="Selección del EDP">
@@ -55,7 +55,7 @@
     </section>
     <section class="tarjeta historial-auditoria" aria-label="Historial de muestras">
       <label>Muestras guardadas de la unidad y período seleccionados<select id="historial" disabled><option value="">Sin muestras guardadas</option></select></label>
-      <p>Cada selección o sorteo crea una revisión nueva. Las anteriores conservan sus documentos y comprobaciones.</p>
+      <p>Cada selección o sorteo crea una revisión nueva y pasa a definir el estado del EDP en el gráfico. Las anteriores conservan sus documentos y comprobaciones.</p>
     </section>
     <section id="sin-muestra" class="tarjeta vacio"><h3>Prepara tu revisión de auditoría</h3><p>Elige un ticket específico, sortea 3, 4 o 5 tickets, o retoma una revisión del historial.</p></section>
     <div id="revision" hidden>

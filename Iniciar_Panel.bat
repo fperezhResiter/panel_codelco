@@ -37,7 +37,7 @@ echo Mantén esta ventana abierta.
 echo Para detener el servidor pulsa Ctrl+C.
 echo.
 
-%PYTHON_CMD% reportabilidad.py %*
+%PYTHON_CMD% -B -m app.reportabilidad %*
 
 if errorlevel 1 goto error
 

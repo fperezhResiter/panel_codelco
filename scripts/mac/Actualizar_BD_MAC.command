@@ -1,6 +1,6 @@
 #!/bin/bash
 
-cd "$(dirname "$0")" || {
+cd "$(dirname "$0")/../.." || {
     echo "ERROR: No se pudo acceder a la carpeta del panel."
     read -p "Presiona Enter para cerrar..."
     exit 1
@@ -21,13 +21,13 @@ fi
 
 python3 -c "import openpyxl" >/dev/null 2>&1
 if [ $? -ne 0 ]; then
-    echo "ERROR: Falta openpyxl. Ejecuta Iniciar_Primera_vez_MAC.command."
+    echo "ERROR: Falta openpyxl. Ejecuta scripts/mac/Iniciar_Primera_vez_MAC.command."
     read -p "Presiona Enter para cerrar..."
     exit 1
 fi
 
 echo
-python3 -B actualizar_BD.py "$@"
+python3 -B -m app.actualizar_BD "$@"
 if [ $? -ne 0 ]; then
     echo
     echo "No se pudo actualizar la base de datos."

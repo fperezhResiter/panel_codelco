@@ -8,6 +8,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit, quote
 from .rutas import ARCHIVOS_WEB
 from .api import API_RUTAS
+from .descargas import nombre_pdf
 
 BASE = Path(__file__).resolve().parent.parent
 
@@ -23,9 +24,13 @@ class ServidorPanel(ThreadingHTTPServer):
         super().server_bind()
 
 
-def crear_handler(fuentes, carpeta_auditoria=None, base_datos=None):
+def crear_handler(fuentes, carpeta_auditoria=None, base_datos=None, compartir_auditoria=False):
     from .auditoria import Auditoria, crear_csv, MAX_SOLICITUD
-    auditoria = Auditoria(fuentes, carpeta_auditoria or BASE / 'Datos' / 'Auditoria')
+    if compartir_auditoria:
+        from .auditoria_compartida import AuditoriaCompartida
+        auditoria = AuditoriaCompartida(fuentes, carpeta_auditoria or BASE / 'Datos' / 'Auditoria')
+    else:
+        auditoria = Auditoria(fuentes, carpeta_auditoria or BASE / 'Datos' / 'Auditoria')
     base_datos = Path(base_datos or BASE / 'Datos' / 'conciliacion.sqlite3')
 
     class Handler(BaseHTTPRequestHandler):
@@ -42,7 +47,23 @@ def crear_handler(fuentes, carpeta_auditoria=None, base_datos=None):
 
         def do_GET(self):
             url = urlsplit(self.path)
-            if url.path.startswith('/api/auditoria'):
+            if url.path in ('/api/densidades/reporte.pdf', '/api/densidades/compilado.zip'):
+                try:
+                    from .densidades import leer_densidades
+                    from .densidades_pdf import crear_pdf_densidades
+                    reporte = leer_densidades(base_datos, parse_qs(url.query))
+                    nombre = nombre_pdf('densidades', reporte['tickets'], unidad=reporte['unidad'])
+                    if url.path.endswith('.zip'):
+                        from .compilados import compilar_densidades
+                        self.responder(200, compilar_densidades(reporte), 'application/zip',
+                                       'compilado-' + nombre.removesuffix('.pdf') + '.zip')
+                    else:
+                        self.responder(200, crear_pdf_densidades(reporte), 'application/pdf', nombre)
+                except FileNotFoundError as error:
+                    self.json_respuesta({'error': str(error)}, 503)
+                except Exception as error:
+                    self.auditoria_error(error)
+            elif url.path.startswith('/api/auditoria'):
                 self.auditoria_get(url)
             elif url.path in ARCHIVOS_WEB:
                 nombre, tipo = ARCHIVOS_WEB[url.path]
@@ -72,7 +93,7 @@ def crear_handler(fuentes, carpeta_auditoria=None, base_datos=None):
             if urlsplit(self.path).path.startswith('/api/auditoria/'):
                 self.auditoria_post(urlsplit(self.path).path)
                 return
-            if urlsplit(self.path).path != '/api/reporte.pdf':
+            if urlsplit(self.path).path not in ('/api/reporte.pdf', '/api/conciliacion/compilado.zip'):
                 self.responder(404, b'No encontrado', 'text/plain; charset=utf-8')
                 return
             try:
@@ -83,8 +104,14 @@ def crear_handler(fuentes, carpeta_auditoria=None, base_datos=None):
                     raise ValueError('El reporte supera el tamaño permitido o está vacío.')
                 contenido = json.loads(self.rfile.read(longitud))
                 from .pdf import crear_pdf
-                documento = crear_pdf(contenido)
-                self.responder(200, documento, 'application/pdf', 'reporte-codelco.pdf')
+                if urlsplit(self.path).path.endswith('.zip'):
+                    from .compilados import compilar_conciliacion
+                    documento = compilar_conciliacion(contenido)
+                    nombre = 'compilado-' + nombre_pdf('conciliacion', contenido['registros']).removesuffix('.pdf') + '.zip'
+                    self.responder(200, documento, 'application/zip', nombre)
+                else:
+                    documento = crear_pdf(contenido)
+                    self.responder(200, documento, 'application/pdf', nombre_pdf('conciliacion', contenido['registros']))
             except (ValueError, UnicodeDecodeError) as error:
                 self.responder(400, json.dumps({'error': str(error)}).encode(), 'application/json; charset=utf-8')
             except ImportError:
@@ -121,12 +148,26 @@ def crear_handler(fuentes, carpeta_auditoria=None, base_datos=None):
                 elif url.path == '/api/auditoria/documento':
                     nombre, contenido = auditoria.documento(identificador)
                     self.responder(200, contenido, 'application/octet-stream', nombre)
+                elif url.path in ('/api/auditoria/unidad.pdf', '/api/auditoria/compilado.zip'):
+                    unidad = parse_qs(url.query).get('unidad', [''])[0]
+                    from .auditoria_pdf import crear_pdf_unidad
+                    reporte = auditoria.reporte_unidad(unidad)
+                    if url.path.endswith('.zip'):
+                        from .compilados import compilar_auditoria
+                        filtros = {k: v[0] for k, v in parse_qs(url.query).items() if k in ('anio', 'mes', 'edp')}
+                        registros = [r for r in reporte['estados_pago'] if all(str(r.get(k)) == v for k, v in filtros.items())]
+                        nombre = 'compilado-' + nombre_pdf('auditoria-edp', registros, unidad=unidad).removesuffix('.pdf') + '.zip'
+                        self.responder(200, compilar_auditoria(reporte, filtros), 'application/zip', nombre)
+                    else:
+                        self.responder(200, crear_pdf_unidad(reporte), 'application/pdf',
+                                       nombre_pdf('auditoria-unidad', reporte['estados_pago'], unidad=unidad))
                 elif url.path in ('/api/auditoria/reporte.pdf', '/api/auditoria/reporte.csv'):
                     muestra = auditoria.obtener(identificador)
                     nombre = f'auditoria-{muestra["unidad"]}-{muestra["periodo"]}-EDP{muestra["edp"]}-{muestra["id"][:8]}'
                     if url.path.endswith('.pdf'):
                         from .auditoria_pdf import crear_pdf_auditoria
-                        self.responder(200, crear_pdf_auditoria(muestra), 'application/pdf', nombre + '.pdf')
+                        self.responder(200, crear_pdf_auditoria(muestra), 'application/pdf',
+                                       nombre_pdf('auditoria-edp', [muestra], revision=muestra['id']))
                     else:
                         self.responder(200, crear_csv(muestra), 'text/csv; charset=utf-8', nombre + '.csv')
                 else:
@@ -169,14 +210,17 @@ def main():
     parser.add_argument('--fuentes', type=Path, default=Path(os.environ.get('CARPETA_FUENTES', BASE / 'Fuentes')),
                         help='Carpeta con unidades, períodos y archivos EDP.')
     parser.add_argument('--puerto', type=int, default=8765)
-    parser.add_argument('--auditorias', type=Path, default=BASE / 'Datos' / 'Auditoria',
+    parser.add_argument('--auditorias', type=Path, default=Path(os.environ.get('CARPETA_AUDITORIAS', BASE / 'Datos' / 'Auditoria')),
                         help='Carpeta persistente de muestras y respaldos de auditoría.')
+    parser.add_argument('--auditoria-local', action='store_true',
+                        help='Usar SQLite local sin compartir cambios entre equipos.')
     parser.add_argument('--bd', type=Path, default=BASE / 'Datos' / 'conciliacion.sqlite3',
                         help='Base SQLite del panel de estados de pago y toneladas.')
     args = parser.parse_args()
     try:
         servidor = ServidorPanel(('127.0.0.1', args.puerto), crear_handler(
-            args.fuentes.resolve(), args.auditorias.resolve(), args.bd.resolve()))
+            args.fuentes.resolve(), args.auditorias.resolve(), args.bd.resolve(),
+            compartir_auditoria=not args.auditoria_local))
     except OSError as error:
         print(f'No se pudo iniciar el panel en el puerto {args.puerto}: {error}', flush=True)
         print('Detén la otra instancia o utiliza --puerto 8766.', flush=True)
@@ -184,6 +228,8 @@ def main():
     print(f'Panel disponible en http://127.0.0.1:{servidor.server_address[1]} | Ctrl+C para detener', flush=True)
     print(f'Fuentes: {args.fuentes.resolve()}', flush=True)
     print(f'Base de datos: {args.bd.resolve()}', flush=True)
+    print(f'Auditoría: {args.auditorias.resolve()} | ' +
+          ('BD local' if args.auditoria_local else 'Cambios compartidos por SharePoint/OneDrive'), flush=True)
     try:
         servidor.serve_forever()
     except KeyboardInterrupt:

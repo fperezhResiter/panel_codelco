@@ -39,6 +39,44 @@ def nombre_respaldo_edp(unidad):
     return '1.1 Retiro RINSP.pdf' if unidad == 'Andina' else '2.5a TICKET INTERNO.pdf'
 
 
+def orden_revision(muestra):
+    # La fecha de creación no cambia al editar ni al sincronizar una revisión antigua.
+    return (datetime.fromisoformat(muestra['creado']).timestamp(), muestra['id'])
+
+
+def resumen_edp(fuentes, muestras):
+    """Estado de la última revisión creada por EDP; las anteriores son historial."""
+    grupos = {}
+    vigentes = {}
+    for registro in [*fuentes, *muestras]:
+        llave = (registro['unidad'], registro['periodo'], registro['edp'])
+        if llave not in grupos:
+            grupos[llave] = {k: registro[k] for k in ('unidad', 'periodo', 'anio', 'mes', 'edp')}
+            grupos[llave].update(archivos=[], revisiones=0, tickets=0, comprobados=0,
+                                 muestra_vigente=None, revision_creada=None)
+        grupo = grupos[llave]
+        if registro['archivo'] not in grupo['archivos']:
+            grupo['archivos'].append(registro['archivo'])
+    for muestra in muestras:
+        llave = (muestra['unidad'], muestra['periodo'], muestra['edp'])
+        grupo = grupos[llave]
+        grupo['revisiones'] += 1
+        if llave not in vigentes or orden_revision(muestra) > orden_revision(vigentes[llave]):
+            vigentes[llave] = muestra
+            grupo.update(tickets=muestra['cantidad'], comprobados=muestra['comprobados'],
+                         muestra_vigente=muestra['id'], revision_creada=muestra['creado'])
+    for grupo in grupos.values():
+        grupo['pendientes'] = grupo['tickets'] - grupo['comprobados']
+        grupo['con_chequeo'] = grupo['comprobados'] > 0
+        grupo['estado_codigo'] = ('sin_revision' if not grupo['con_chequeo'] else
+                                  'parcial' if grupo['pendientes'] else 'completo')
+        grupo['estado'] = {'sin_revision': 'Sin revisión', 'parcial': 'Chequeo parcial',
+                           'completo': 'Chequeo completo'}[grupo['estado_codigo']]
+        grupo['color'] = {'sin_revision': 'rojo', 'parcial': 'amarillo',
+                          'completo': 'verde'}[grupo['estado_codigo']]
+    return sorted(grupos.values(), key=lambda g: (g['unidad'], g['periodo'], g['edp']))
+
+
 def leer_excel(contenido, unidad=None):
     # Los límites se revisan antes de descomprimir el libro.
     try:
@@ -60,6 +98,8 @@ def leer_excel(contenido, unidad=None):
         campos = [{'columna': get_column_letter(c),
                    'nombre': texto(hoja.cell(inicio, c).value) or 'Sin encabezado'} for c in columnas]
         tickets, avisos = [], []
+        if clave(hoja.cell(inicio, col_ticket).value) == 'IDMINIMIZA':
+            avisos.append('Se usa ID MINIMIZA como número de ticket porque la hoja no tiene columna N.º Ticket.')
         for fila in range(inicio + 1, fin + 1):
             if andina and fila_plantilla_ticket(hoja, formulas, fila, col_ticket, col_peso, col_fecha):
                 continue
@@ -152,7 +192,26 @@ class Auditoria:
             muestras = [json.loads(r['datos']) for r in db.execute('SELECT datos FROM muestras ORDER BY rowid DESC')]
         resumen = [{k: m[k] for k in ('id', 'fuente', 'creado', 'unidad', 'anio', 'mes', 'periodo', 'edp', 'archivo')}
                    | {'cantidad': len(m['tickets']), 'comprobados': sum(t['comprobado'] for t in m['tickets'])} for m in muestras]
-        return {'fuentes': fuentes, 'muestras': resumen, 'avisos': avisos, 'unidades': list(UNIDADES)}
+        resumen.sort(key=orden_revision, reverse=True)
+        return {'fuentes': fuentes, 'muestras': resumen, 'avisos': avisos, 'unidades': list(UNIDADES),
+                'estados_pago': resumen_edp(fuentes, resumen), 'conexion_bd': self.estado_conexion()}
+
+    def reporte_unidad(self, unidad):
+        if unidad not in UNIDADES:
+            raise ValueError('Selecciona una unidad válida para el reporte.')
+        catalogo = self.catalogo()
+        with self.conexion() as db:
+            # Una instantánea mantiene el resumen y el detalle coherentes ante otro check.
+            db.execute('BEGIN')
+            guardadas = [json.loads(r['datos']) for r in db.execute('SELECT datos FROM muestras')]
+            muestras = [self.obtener(m['id'], db) for m in guardadas if m['unidad'] == unidad]
+        resumen = [{**m, 'cantidad': len(m['tickets']),
+                    'comprobados': sum(t['comprobado'] for t in m['tickets'])} for m in muestras]
+        registros = resumen_edp([f for f in catalogo['fuentes'] if f['unidad'] == unidad], resumen)
+        if not registros:
+            raise ValueError('La unidad no tiene EDP ni revisiones guardadas para reportar.')
+        return {'unidad': unidad, 'generado': ahora(), 'estados_pago': registros,
+                'muestras': sorted(muestras, key=lambda m: (m['periodo'], m['edp'], m['creado']))}
 
     def importar(self, datos):
         nombre, contenido = decodificar(datos, {'.xlsx', '.xlsm'})
@@ -200,7 +259,13 @@ class Auditoria:
             return None
         nombres = {'11RETIRORINSP', '11RETIRORINP'} if muestra['unidad'] == 'Andina' else {'25ATICKETINTERNO'}
         for ruta in sorted(carpeta.iterdir()):
-            if (ruta.suffix.lower() == '.pdf' and clave(ruta.stem) in nombres
+            # Las fuentes de El Salvador incluyen habitualmente "(EDP 47)".
+            # Admitir únicamente el sufijo del mismo EDP, sin mezclar servicios.
+            nombre = clave(ruta.stem)
+            sufijo = re.search(r'(?:EDP|EP)(\d+)$', nombre)
+            if sufijo and int(sufijo[1]) == muestra['edp']:
+                nombre = nombre[:sufijo.start()]
+            if (ruta.suffix.lower() == '.pdf' and nombre in nombres
                     and ruta.resolve().is_relative_to(carpeta) and ruta.is_file() and ruta.stat().st_size > 0):
                 return {'nombre': ruta.name, 'archivo': ruta.relative_to(raiz).as_posix(),
                         'bytes': ruta.stat().st_size, 'guardado': False}
@@ -230,6 +295,13 @@ class Auditoria:
     def guardar(self, db, muestra):
         muestra['actualizado'] = ahora()
         db.execute('UPDATE muestras SET datos=? WHERE id=?', (json.dumps(muestra, ensure_ascii=False), muestra['id']))
+
+    def publicar_cambio(self, db, muestra, fila=None):
+        """Punto de extensión para compartir revisiones sin cambiar el modo local."""
+
+    def estado_conexion(self):
+        return {'modo': 'local', 'conectada': True, 'carpeta': str(self.carpeta),
+                'mensaje': 'BD local conectada', 'pendientes': 0}
 
     def leer_fuente(self, identificador):
         fuente = next((f for f in self.catalogo()['fuentes'] if f['id'] == identificador), None)
@@ -278,11 +350,13 @@ class Auditoria:
     def crear_muestra(self, fuente, libro, tickets, modo):
         for t in tickets:
             t.update(comprobado=False, comprobado_en=None, documentos=[])
-        muestra = {**fuente, 'id': uuid.uuid4().hex, 'fuente': fuente['id'], 'creado': ahora(), 'actualizado': ahora(),
+        muestra = {**fuente, 'id': uuid.uuid4().hex, 'fuente': fuente['id'],
+                   'creado': datetime.now().astimezone().isoformat(timespec='microseconds'), 'actualizado': ahora(),
                    'hoja': libro['hoja'], 'item': libro['item'], 'sha256': libro['sha256'], 'poblacion': len(libro['tickets']),
                    'avisos': libro['avisos'], 'tickets': tickets, 'modo': modo}
         with self.conexion() as db:
             db.execute('INSERT INTO muestras VALUES (?,?,?)', (muestra['id'], fuente['id'], json.dumps(muestra, ensure_ascii=False)))
+            self.publicar_cambio(db, self.obtener(muestra['id'], db))
         return self.obtener(muestra['id'])
 
     def modificar(self, datos, accion):
@@ -325,7 +399,9 @@ class Auditoria:
             else:
                 raise ValueError('Acción no reconocida.')
             self.guardar(db, muestra)
-            return self.obtener(identificador, db)
+            resultado = self.obtener(identificador, db)
+            self.publicar_cambio(db, resultado, fila)
+            return resultado
 
     def documento(self, identificador):
         with self.conexion() as db:

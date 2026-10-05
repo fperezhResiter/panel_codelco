@@ -5,8 +5,8 @@ title Preparacion inicial - Panel Codelco
 pushd "%~dp0"
 if errorlevel 1 goto error_carpeta
 
-if not exist "requirements.txt" goto error_archivos
-if not exist "reportabilidad.py" goto error_archivos
+if not exist "config\requirements.txt" goto error_archivos
+if not exist "app\reportabilidad.py" goto error_archivos
 if not exist "app\servidor.py" goto error_archivos
 
 echo Buscando Python 3.10 o superior...
@@ -32,14 +32,14 @@ echo Actualizando pip...
 if errorlevel 1 goto error
 
 echo Instalando dependencias...
-%PYTHON_CMD% -m pip install -r requirements.txt
+%PYTHON_CMD% -m pip install -r "config\requirements.txt"
 if errorlevel 1 goto error
 
 echo Verificando instalacion...
 %PYTHON_CMD% -m pip check
 if errorlevel 1 goto error
 
-%PYTHON_CMD% -B reportabilidad.py --help >nul
+%PYTHON_CMD% -B -m app.reportabilidad --help >nul
 if errorlevel 1 goto error
 
 echo.

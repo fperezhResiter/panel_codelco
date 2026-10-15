@@ -1,0 +1,411 @@
+html[data-tema="claro"] { color-scheme: light; }
+.controles-universales {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+.controles-universales .menu-principal,
+.controles-universales .control-tema {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-height: 40px;
+  padding: 8px 13px;
+  border: 1px solid #8da8c1;
+  border-radius: 10px;
+  background: #ffffff1a;
+  color: #fff;
+  font:
+    600 13px/1.4 Arial,
+    sans-serif;
+  text-decoration: none;
+  cursor: pointer;
+}
+.controles-universales .control-tema {
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  padding: 0;
+  font-size: 20px;
+}
+.controles-universales .menu-principal,
+.controles-universales .volver-inicio {
+  height: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  margin-left: 0;
+}
+body > header .controles-universales small {
+  margin: 0;
+}
+.icono-tema {
+  display: inline-block;
+  transition: transform 0.3s ease;
+  transform: rotate(0deg);
+}
+[data-tema="oscuro"] .icono-tema {
+  transform: rotate(180deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .icono-tema {
+    transition: none;
+  }
+}
+.controles-universales .menu-principal:hover,
+.controles-universales .control-tema:hover {
+  background: #ffffff30;
+  color: white;
+}
+.controles-universales :focus-visible {
+  outline: 2px solid white;
+  outline-offset: 3px;
+}
+#gate > .controles-universales {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+}
+#gate > .controles-universales button {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  background: #ffffff1a;
+  border: 1px solid #8da8c1;
+  font-size: 20px;
+}
+@media screen {
+html[data-tema="oscuro"] {
+  color-scheme: dark;
+  --navy: #0a1d30;
+  --navy-2: #06121f;
+  --azul: #73c5f4;
+  --fondo: #07131f;
+  --panel: #0e2033;
+  --panel-2: #152b44;
+  --blanco: #0e2033;
+  --linea: #29435b;
+  --borde: #29435b;
+  --tinta: #e4edf6;
+  --gris: #adbed0;
+  --suave: #adbed0;
+  --tenue: #adbed0;
+  --bien: #4cdbb7;
+  --medio: #e8b44c;
+  --mal: #ff9285;
+  --verde: #4cc9a0;
+  --rojo: #ff9285;
+  --amarillo: #e8b44c;
+  --nulo: #adbed0;
+  --grafico-texto: #c5d7e7;
+  --grafico-rejilla: #40566d;
+  --estado-verde-fondo: #174638;
+  --estado-verde-texto: #9ae2c4;
+  --estado-amarillo-fondo: #59451a;
+  --estado-amarillo-texto: #ffe1a0;
+  --estado-rojo-fondo: #532b2b;
+  --estado-rojo-texto: #ffb1a7;
+}
+html[data-tema="oscuro"] body {
+  background: var(--fondo);
+  color: var(--tinta);
+}
+html[data-tema="oscuro"]
+  :is(
+    .filtros,
+    .navegacion-paneles,
+    .panel-enlace,
+    .tarjeta,
+    .kpi,
+    .contenido,
+    .sesion-usuario,
+    .mt-opciones,
+    .tabs,
+    .grafico-tooltip,
+    .modal,
+    dialog,
+    table,
+    .barra
+  ) {
+  background: var(--panel);
+  color: var(--tinta);
+  border-color: var(--linea);
+}
+html[data-tema="oscuro"] :is(input, select, textarea, option, button, .btn, .tab) {
+  background: var(--panel-2);
+  color: var(--tinta);
+  border-color: var(--linea);
+}
+html[data-tema="oscuro"]
+  :is(
+    h2,
+    h3,
+    h4,
+    summary,
+    legend,
+    dd,
+    figcaption,
+    .config-region,
+    .panel-enlace h3,
+    .kpi b,
+    .kpi strong,
+    .resumen b,
+    .config-seccion h3,
+    details.tarjeta > summary
+  ) {
+  color: #c6e3f7;
+}
+html[data-tema="oscuro"]
+  :is(.navegacion-paneles a, .navegacion-paneles button) {
+  color: var(--gris);
+}
+html[data-tema="oscuro"]
+  :is(
+    .navegacion-paneles [aria-current],
+    .navegacion-paneles [aria-pressed="true"],
+    .navegacion-paneles a:hover,
+    .panel-icono,
+    .estado,
+    .aviso,
+    .regla-capacidades
+  ) {
+  background: #193b53;
+  color: #c6e3f7;
+}
+html[data-tema="oscuro"]
+  :is(tr.lvl-zona, tr.region, tr.zona, tr.fila-region, tr.fila-zona) {
+  background: #173b56;
+  color: #d8ebfa;
+}
+html[data-tema="oscuro"]
+  :is(tr.lvl-unidad, tr.unidad, tr.fila-unidad, tfoot tr.capex td) {
+  background: #142d43;
+  color: #d8ebfa;
+}
+html[data-tema="oscuro"] :is(th, td) {
+  border-color: var(--linea);
+}
+html[data-tema="oscuro"] :is(thead th, th:last-child) {
+  background: var(--panel-2);
+  color: var(--gris);
+}
+html[data-tema="oscuro"] :is(tbody td:last-child, .km-tabla-scroll td:first-child) {
+  background: var(--panel);
+  color: var(--tinta);
+}
+html[data-tema="oscuro"] :is(tr.lvl-linea, tr.zona-linea) {
+  background: var(--panel);
+}
+html[data-tema="oscuro"] :is(tr.region, tr.zona, tr.fila-region, tr.fila-zona) td,
+html[data-tema="oscuro"] .km-tabla-scroll tbody tr.km-grupo th {
+  background: #173b56;
+  color: #d8ebfa;
+}
+html[data-tema="oscuro"] #mt-agenda tr.mt-agenda-unidad td,
+html[data-tema="oscuro"] .km-tabla-scroll tbody tr.km-grupo-unidad th {
+  background: #142d43;
+  color: #d8ebfa;
+}
+html[data-tema="oscuro"] .km-tabla-scroll tbody tr.km-grupo.zona-linea th {
+  background: var(--panel-2);
+  color: var(--tinta);
+}
+/* El hover conserva el semáforo y las celdas del mapa de cumplimiento. */
+html[data-tema="oscuro"] tbody tr:is(:hover, :focus-within) td:not(.celda):not(.mt-rojo):not(.mt-amarillo):not(.mt-verde):not(.mt-gris):not(.km-uso-alerta) {
+  background-color: #203e56;
+}
+html[data-tema="oscuro"] :is(.kpi:hover, .panel-enlace:hover) {
+  background: #18354b;
+}
+html[data-tema="oscuro"] :is(.badge, .verde, .e-ok, .mt-tabla .mt-verde, .respaldo-disponible, .estado.completo) {
+  background: var(--estado-verde-fondo);
+  color: var(--estado-verde-texto);
+}
+html[data-tema="oscuro"] :is(.badge.pendiente, .pendiente, .sem-amarillo, .amarillo, .e-med, .mt-tabla .mt-amarillo, .observaciones, #avisos) {
+  background: var(--estado-amarillo-fondo);
+  color: var(--estado-amarillo-texto);
+  border-color: #987a3e;
+}
+html[data-tema="oscuro"] :is(.sem-rojo, .rojo, .e-mal, .mt-tabla .mt-rojo, #estado.error, .km-tabla-scroll td.km-uso-alerta) {
+  background: var(--estado-rojo-fondo);
+  color: var(--estado-rojo-texto);
+}
+html[data-tema="oscuro"] :is(.sem-nd, .semaforo.gris, .neutro, .e-off, .mt-tabla .mt-gris, .modal .x) {
+  background: #29435b;
+  color: #d8e6f2;
+}
+html[data-tema="oscuro"] .estado b {
+  color: #d8ebfa;
+}
+html[data-tema="oscuro"] :is(.panel-accion, .enlace, .respaldo-disponible a, .lista-respaldos li > a, .dic-atajos a) {
+  color: #73c5f4;
+}
+html[data-tema="oscuro"] :is(.metodo, .comprobacion-manual, .sem-azul, .mt-cal-dia.programado) {
+  background: #193b53;
+  color: #c6e3f7;
+}
+html[data-tema="oscuro"] :is(.nota-fuera-maestro, .aviso-celda, .nav-pendiente) {
+  color: var(--estado-amarillo-texto);
+}
+html[data-tema="oscuro"] :is(.error, #pdf-estado.error, .km-tabla-scroll td.km-uso-alerta .km-sub) {
+  color: var(--estado-rojo-texto);
+}
+html[data-tema="oscuro"] :is(dialog .titulo, dialog code, .barra-pista) {
+  background: var(--panel-2);
+}
+html[data-tema="oscuro"] .ultima-actualizacion {
+  color: var(--gris);
+}
+html[data-tema="oscuro"] :is(input, textarea)::placeholder {
+  color: var(--tenue);
+  opacity: 1;
+}
+/* Los botones de fila heredan el color y la superficie de su grupo. */
+html[data-tema="oscuro"] :is(.region button, .mt-grupo-boton, .km-grupo-boton, .km-semana-boton, .programa-grupo-boton, .detalle-total, .orden-columna, .fila, .m-bloque > button) {
+  background: transparent;
+  color: inherit;
+}
+html[data-tema="oscuro"] :is(button.clk, .km-patente-boton, .reporte-ceco-enlace, .enlace) {
+  background: transparent;
+  color: var(--azul);
+}
+html[data-tema="oscuro"] :is(button, .btn, .tab, .enlace-boton):hover:not(:disabled) {
+  background-color: #244860;
+  color: #e4edf6;
+  border-color: #73c5f4;
+}
+html[data-tema="oscuro"] :is(.fila, .m-bloque > button):hover {
+  background: var(--panel-2);
+}
+html[data-tema="oscuro"] :is(button, a, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 3px solid #73c5f4;
+  outline-offset: 3px;
+}
+html[data-tema="oscuro"] :is(button, .btn):disabled {
+  background: var(--panel-2);
+  color: var(--gris);
+  border-color: var(--linea);
+}
+html[data-tema="oscuro"] :is(.tab.on, .tabs [aria-selected="true"], .boton-modo-zona[aria-pressed="true"]) {
+  background: #14699c;
+  color: white;
+  border-color: #73c5f4;
+}
+/* Mantener los colores de indicador también en hover y foco. */
+html[data-tema="oscuro"] .kpi {
+  --indicador-fondo: color-mix(in srgb, var(--indicador-color, var(--azul)) 15%, var(--panel));
+  --kpi-fondo: color-mix(in srgb, var(--kpi-color, var(--azul)) 15%, var(--panel));
+}
+html[data-tema="oscuro"] .kpi:is(:hover, :focus-visible, :focus-within) {
+  background: color-mix(in srgb, var(--kpi-color, var(--color-kpi, var(--indicador-color, var(--azul)))) 15%, var(--panel));
+}
+html[data-tema="oscuro"] .kpi::before {
+  opacity: 1;
+}
+html[data-tema="oscuro"] :is(.kpi.kpi-verde, .kpi[data-kpi-color="verde"]) { --indicador-color: var(--verde); --kpi-color: var(--verde); }
+html[data-tema="oscuro"] :is(.kpi.kpi-amarillo, .kpi[data-kpi-color="amarillo"]) { --indicador-color: var(--amarillo); --kpi-color: var(--amarillo); }
+html[data-tema="oscuro"] :is(.kpi.kpi-rojo, .kpi[data-kpi-color="rojo"]) { --indicador-color: var(--rojo); --kpi-color: var(--rojo); }
+html[data-tema="oscuro"] :is(.kpi.kpi-gris, .kpi[data-kpi-color="neutro"]) { --indicador-color: var(--gris); --kpi-color: var(--gris); }
+html[data-tema="oscuro"] :is(.ic, #gate button[type="submit"], .enlace-boton) {
+  background: #14699c;
+  color: white;
+}
+/* SVG: ejes legibles y halo oscuro para los valores resaltados. */
+html[data-tema="oscuro"] svg text {
+  fill: var(--grafico-texto);
+}
+html[data-tema="oscuro"] svg :is(text, tspan)[fill] {
+  fill: var(--grafico-texto);
+}
+/* Etiquetas dentro de barras: un halo conserva contraste sobre cada serie. */
+html[data-tema="oscuro"] svg text:is([fill="#fff" i], [fill="#ffffff" i]) {
+  fill: white;
+  stroke: var(--navy-2);
+  stroke-width: 3px;
+  paint-order: stroke fill;
+  stroke-linejoin: round;
+}
+html[data-tema="oscuro"] svg [stroke="#dde4ec" i],
+html[data-tema="oscuro"] svg [stroke="#dce3eb" i] {
+  stroke: var(--grafico-rejilla);
+}
+html[data-tema="oscuro"] .km-valor-activo {
+  fill: var(--tinta);
+  stroke: var(--panel);
+}
+html[data-tema="oscuro"] :is(.km-rejilla, .km-guia-activa) {
+  stroke: var(--grafico-rejilla);
+}
+html[data-tema="oscuro"] :is(.km-marca-activa .km-punto, .km-marca-activa .km-barra, circle.grafico-senalado) {
+  stroke: #e4edf6;
+}
+html[data-tema="oscuro"] .barra.grafico-destacado {
+  color: var(--tinta);
+}
+html[data-tema="oscuro"] svg :is(circle, rect, path)[fill="#a12424" i] {
+  fill: var(--rojo);
+}
+html[data-tema="oscuro"] :is(.punto-proyectado, svg circle[fill="#5b6b7c" i]) {
+  fill: var(--tenue);
+}
+html[data-tema="oscuro"] .linea-proyectado {
+  stroke: var(--tenue);
+}
+html[data-tema="oscuro"] .leyenda-mensual .serie-proyectado::before {
+  background: var(--tenue);
+}
+html[data-tema="oscuro"] :is(button.pri, button.primario, .tab.on) {
+  background: #14699c;
+  color: white;
+}
+html[data-tema="oscuro"] .controles-universales :is(a, button) {
+  background: #ffffff1a;
+  color: white;
+}
+html[data-tema="oscuro"] .controles-universales :is(a, button):hover {
+  background: #ffffff30;
+}
+}
+@media (max-width: 600px) {
+  .controles-universales {
+    gap: 6px;
+  }
+  .controles-universales .menu-principal {
+    padding: 8px 10px;
+  }
+}
+@media print {
+  .controles-universales {
+    display: none !important;
+  }
+  html[data-tema="oscuro"] {
+    color-scheme: light;
+    --navy: #073762;
+    --navy-2: #0a2a47;
+    --azul: #0e81c5;
+    --fondo: #fff;
+    --panel: #fff;
+    --panel-2: #f5f9fc;
+    --blanco: #fff;
+    --linea: #dde4ec;
+    --borde: #dde4ec;
+    --tinta: #1b2a3a;
+    --gris: #5b6b7c;
+    --suave: #5b6b7c;
+    --tenue: #5b6b7c;
+    --bien: #23754f;
+    --medio: #795000;
+    --mal: #a12424;
+    --nulo: #5b6b7c;
+    --verde: #2e9e6b;
+    --rojo: #c43c39;
+    --amarillo: #d98a1e;
+  }
+  html[data-tema="oscuro"] body {
+    background: white;
+    color: #1b2a3a;
+  }
+}

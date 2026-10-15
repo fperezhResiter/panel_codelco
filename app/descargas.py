@@ -38,6 +38,13 @@ def nombre_pdf(panel, registros, unidad=None, revision=None):
     edp_nombre = ('edp-' + '-'.join(edps) if 0 < len(edps) <= 3 else
                   'varios-edp' if edps else 'edp-sin-identificar')
     partes = [unidad_nombre, mes_nombre, edp_nombre, 'panel-' + panel]
+    if panel == 'distribucion-volumen':
+        # El Explorador agrega el nombre del ZIP a la ruta al extraerlo.
+        # Usar nombres breves tanto en la descarga como dentro del compilado.
+        unidad_corta = {'El Salvador': 'salvador', 'Andina': 'andina'}.get(unidad_nombre, unidad_nombre)
+        periodo_corto = (next(iter(periodos)) if len(periodos) == 1 else
+                         f'{min(periodos)}_a_{max(periodos)}' if periodos else 'sin-periodo')
+        partes = [unidad_corta, periodo_corto, edp_nombre, 'volumen']
     if revision:
         partes.append(str(revision)[:8])
     return '-'.join(componente(parte) for parte in partes) + '.pdf'

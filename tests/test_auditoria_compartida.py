@@ -12,6 +12,7 @@ from unittest.mock import patch
 from app.auditoria import Auditoria
 from app.auditoria_compartida import AuditoriaCompartida
 from app.servidor import crear_handler
+from soporte_usuarios import crear_handler_administrador as crear_handler
 from test_auditoria import excel, adjunto
 
 
@@ -30,6 +31,8 @@ class AuditoriaCompartidaTests(unittest.TestCase):
         self.b = AuditoriaCompartida(self.fuentes, self.replica, self.raiz / 'cache-B')
         fuente = self.a.catalogo()['fuentes'][0]['id']
         self.m = self.a.sortear({'fuente': fuente, 'cantidad': 3})
+        for t in self.a.listar_tickets(fuente)['tickets']:
+            (carpeta / f'{t["ticket"]}_EDP47.pdf').write_bytes(b'%PDF-1.4\nRespaldo compartido')
 
     def tearDown(self):
         self.temp.cleanup()
@@ -51,6 +54,9 @@ class AuditoriaCompartidaTests(unittest.TestCase):
         m = self.b.obtener(self.m['id'])
         self.assertTrue(m['tickets'][0]['comprobado'])
         self.assertEqual(self.b.documento_edp(m['id'])[1], b'%PDF-1.4\nRespaldo compartido')
+        t = m['tickets'][0]
+        (self.fuentes / m['archivo']).parent.joinpath(f'{t["ticket"]}_EDP47.pdf').unlink()
+        self.assertEqual(self.b.documento_ticket(m['id'], t['fila'])[1], b'%PDF-1.4\nRespaldo compartido')
         self.assertEqual(self.b.catalogo()['estados_pago'][0]['color'], 'amarillo')
         self.assertEqual(self.b.estado_conexion()['modo'], 'carpeta_compartida')
         self.assertFalse((self.replica / 'auditoria.sqlite3').exists())
@@ -98,11 +104,13 @@ class AuditoriaCompartidaTests(unittest.TestCase):
 
     def test_adjuntar_y_quitar_se_comparten_con_restablecimiento_del_check(self):
         fila = self.m['tickets'][0]['fila']
-        m = self.a.modificar({'muestra': self.m['id'], 'fila': fila, **adjunto('prueba.txt', b'Prueba')}, 'adjuntar')
+        nombre = f'{self.m["tickets"][0]["ticket"]}_EDP47.pdf'
+        contenido = b'%PDF-1.4\nRespaldo compartido'
+        m = self.a.modificar({'muestra': self.m['id'], 'fila': fila, **adjunto(nombre, contenido)}, 'adjuntar')
         documento = m['tickets'][0]['documentos'][0]['id']
         self.cambiar(self.a, 0, True)
         self.sincronizar_carpetas()
-        self.assertEqual(self.b.documento(documento)[1], b'Prueba')
+        self.assertEqual(self.b.documento(documento)[1], contenido)
         m = self.b.modificar({'muestra': m['id'], 'fila': fila, 'documento': documento}, 'quitar')
         self.sincronizar_carpetas()
         m = self.a.obtener(m['id'])
@@ -160,3 +168,31 @@ class AuditoriaCompartidaTests(unittest.TestCase):
         c = self.b.catalogo()
         self.assertEqual(c['conexion_bd']['pendientes'], 1)
         self.assertTrue(self.b.obtener(self.m['id'])['tickets'][0]['comprobado'])
+
+    def test_eliminar_se_sincroniza_y_no_revive_con_checks_tardios_o_cache_nueva(self):
+        self.cambiar(self.a, 0, True)
+        self.sincronizar_carpetas()
+        self.b.obtener(self.m['id'])
+        self.a.eliminar({'muestra': self.m['id']})
+        # Un equipo sin recibir todavía la eliminación publica otro check.
+        self.cambiar(self.b, 1, True)
+        self.sincronizar_carpetas()
+        c = AuditoriaCompartida(self.fuentes, self.replica, self.raiz / 'cache-C')
+        for equipo in (self.a, self.b, c):
+            self.assertEqual(equipo.catalogo()['muestras'], [])
+            self.assertEqual(equipo.catalogo()['estados_pago'][0]['estado_codigo'], 'sin_revision')
+            self.assertEqual(equipo.estado_conexion()['pendientes'], 0)
+            with equipo.conexion() as db:
+                self.assertEqual(db.execute('SELECT count(*) FROM documentos').fetchone()[0], 0)
+            with self.assertRaises(ValueError):
+                equipo.obtener(self.m['id'])
+        self.assertTrue((self.fuentes / self.m['archivo']).is_file())
+
+    def test_fallo_publicando_eliminacion_conserva_muestra_y_documentos(self):
+        self.cambiar(self.a, 0, True)
+        with patch('app.auditoria_compartida.escribir_atomico', side_effect=OSError('Sin conexión')):
+            with self.assertRaises(OSError):
+                self.a.eliminar({'muestra': self.m['id']})
+        m = self.a.obtener(self.m['id'])
+        self.assertTrue(m['tickets'][0]['comprobado'])
+        self.assertTrue(m['tickets'][0]['documentos'])

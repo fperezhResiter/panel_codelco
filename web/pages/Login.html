@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Acceso — Reporte Codelco</title>
+  <link rel="stylesheet" href="/web/css/panel.css">
+  <script src="/web/js/login.js" defer></script>
+<!-- INICIO CONTROLES UNIVERSALES -->
+<link rel="stylesheet" href="/web/css/controles-comunes.css">
+<script src="/web/js/controles-comunes.js" data-menu="../../../../Panel Universal.html"></script>
+<!-- FIN CONTROLES UNIVERSALES -->
+</head>
+<body>
+  <header><img class="logo" src="/web/img/logo_sin_fondo_resiter.png" alt="Resiter"><h1>Reporte Codelco</h1><small>Acceso de usuarios</small></header>
+  <main class="acceso">
+    <section class="tarjeta contenido">
+      <h2 id="titulo-acceso">Iniciar sesión</h2>
+      <p id="estado-acceso" role="status" aria-live="polite">Consultando acceso…</p>
+      <form id="ingreso" hidden>
+        <label>Correo<input name="usuario" type="email" autocomplete="username" required maxlength="254" placeholder="usuario@resiter.cl"></label>
+        <label>Contraseña<input name="password" type="password" autocomplete="current-password" required maxlength="256"></label>
+        <button class="primario" type="submit">Ingresar</button>
+      </form>
+      <form id="configurar" hidden>
+        <p>Crea la primera cuenta Admin. Luego podrás agregar usuarios desde Configuraciones.</p>
+        <label>Correo de Admin<input name="correo" type="email" autocomplete="username" required maxlength="254"></label>
+        <label>Contraseña<input name="password" type="password" autocomplete="new-password" required minlength="10" maxlength="256"></label>
+        <button class="primario" type="submit">Crear Admin</button>
+      </form>
+    </section>
+  </main>
+</body>
+</html>

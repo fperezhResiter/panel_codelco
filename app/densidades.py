@@ -1,19 +1,22 @@
 """Maestra de densidades y chequeo de tickets por unidad desde SQLite."""
 import json
+import hashlib
 import sqlite3
+from datetime import datetime, timezone
 from contextlib import closing
 from decimal import Decimal
 from pathlib import Path
 
 from .excel import FuenteExcel, clave, normalizar, numero
 from .residuos import clave_material, estandarizar_residuo, identificar_residuo
+from .reportes import ruta_fuente_canonica
 
 VOLUMENES = (15, 20, 30)
 BANDAS_POR_UNIDAD = {'El Salvador': VOLUMENES, 'Andina': (13, 20, 40)}
 TOLERANCIA = Decimal('3')
-ESTADOS = {'coincide': 'Coincide con volumen',
-           'no_coincide_menor': 'No coincide con volumen menor',
-           'no_coincide_mayor': 'No coincide con volumen mayor',
+ESTADOS = {'coincide': 'Transacción es Consistente con las tolvas en Faena',
+           'no_coincide_menor': 'Transacción No óptima con las tolvas en Faena',
+           'no_coincide_mayor': 'Transacción No es Consistente con las tolvas en Faena',
            'sin_evaluar': 'Sin evaluar'}
 
 
@@ -167,6 +170,7 @@ def leer_densidades(ruta, parametros=None):
                            'error': 'Material duplicado en la maestra después de estandarizar sus nombres.'}
         else:
             indice[key] = material
+    comentarios = leer_comentarios(ruta)
     tickets, avisos_edp = [], []
     for registro in reporte['registros']:
         if registro['unidad'] != unidad:
@@ -179,6 +183,9 @@ def leer_densidades(ruta, parametros=None):
             fila = evaluar_ticket(ticket, indice.get(clave_material(ticket['residuo_estandarizado'], unidad)), unidad)
             fila.update({k: registro[k] for k in ('archivo', 'periodo', 'anio', 'mes', 'edp')})
             fila['hoja_ticket'] = registro.get('referencias', {}).get('peso', {}).get('hoja', '')
+            identidad = [unidad, ruta_fuente_canonica(fila['archivo']), fila['hoja_ticket'], fila['fila'], fila.get('ticket')]
+            fila['id'] = hashlib.sha256(json.dumps(identidad, ensure_ascii=False).encode()).hexdigest()
+            fila.update(comentarios.get(fila['id'], {'comentario': '', 'comentario_autor': '', 'comentario_actualizado': ''}))
             tickets.append(fila)
     tickets.sort(key=lambda t: (t['periodo'] or '', t['edp'] or 0, t['archivo'], t['fila']))
     datos = {'actualizado': reporte['actualizado'], 'maestra': {**maestra, 'materiales': materiales},
@@ -188,12 +195,60 @@ def leer_densidades(ruta, parametros=None):
     return filtrar_reporte(datos, parametros or {})
 
 
+def ruta_comentarios(ruta):
+    # Separada de la BD de importación, que Actualizar_BD reemplaza por completo.
+    ruta = Path(ruta)
+    return ruta.with_name(ruta.stem + '-comentarios-densidades.sqlite3')
+
+
+def leer_comentarios(ruta):
+    archivo = ruta_comentarios(ruta)
+    if not archivo.is_file():
+        return {}
+    with closing(sqlite3.connect(archivo)) as db:
+        if not db.execute("SELECT 1 FROM sqlite_master WHERE name='comentarios'").fetchone():
+            return {}
+        return {identificador: {'comentario': texto, 'comentario_autor': autor, 'comentario_actualizado': fecha}
+                for identificador, texto, autor, fecha in db.execute('SELECT id, comentario, autor, actualizado FROM comentarios')}
+
+
+def guardar_comentario(ruta, datos, usuario):
+    if usuario.get('rol') not in ('auditor', 'administrador') or 'revisar' not in usuario.get('permisos', []):
+        raise PermissionError('Solo auditor y admin pueden comentar tickets rojos.')
+    identificador, texto = datos.get('id'), datos.get('comentario')
+    if not isinstance(identificador, str) or not isinstance(texto, str) or len(texto) > 2000:
+        raise ValueError('Indica el ticket y un comentario de hasta 2.000 caracteres.')
+    reporte = leer_densidades(ruta, {'unidad': datos.get('unidad')})
+    ticket = next((t for t in reporte['tickets'] if t['id'] == identificador), None)
+    if ticket is None:
+        raise ValueError('El ticket no está disponible. Recarga los datos.')
+    if ticket['estado'] != 'no_coincide_mayor':
+        raise ValueError('Solo se pueden comentar tickets con resultado rojo.')
+    comentario = {'comentario': texto.strip(), 'comentario_autor': usuario['correo'],
+                  'comentario_actualizado': datetime.now(timezone.utc).isoformat()}
+    with closing(sqlite3.connect(ruta_comentarios(ruta))) as db, db:
+        db.execute('CREATE TABLE IF NOT EXISTS comentarios (id TEXT PRIMARY KEY, comentario TEXT NOT NULL, autor TEXT NOT NULL, actualizado TEXT NOT NULL)')
+        db.execute('INSERT INTO comentarios VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET comentario=excluded.comentario, autor=excluded.autor, actualizado=excluded.actualizado',
+                   (identificador, comentario['comentario'], comentario['comentario_autor'], comentario['comentario_actualizado']))
+    return {'id': identificador, **comentario}
+
+
 def filtrar_reporte(datos, parametros):
     filtros = {k: str(v[0] if isinstance(v, list) and v else v).strip() for k, v in parametros.items()
-               if k in ('unidad', 'anio', 'mes', 'edp', 'residuo', 'estado', 'volumen_tipo', 'buscar') and v}
+               if k in ('unidad', 'anio', 'trimestre', 'mes', 'edp', 'residuo', 'estado', 'volumen_tipo', 'buscar') and v}
+    if filtros.get('trimestre') and filtros['trimestre'] not in ('1', '2', '3', '4'):
+        raise ValueError('El trimestre debe ser 1, 2, 3 o 4.')
+    def coincide_trimestre(registro):
+        mes = registro.get('mes')
+        return not filtros.get('trimestre') or (str(mes).isdigit() and 1 <= int(mes) <= 12
+                                               and str((int(mes) - 1) // 3 + 1) == filtros['trimestre'])
     def coincide(t):
+        if not coincide_trimestre(t):
+            return False
         for campo, valor in filtros.items():
-            if campo == 'buscar':
+            if campo == 'trimestre':
+                continue
+            elif campo == 'buscar':
                 if normalizar(valor) not in normalizar(' '.join(str(t.get(k) or '') for k in
                                                               ('ticket', 'retiro', 'residuo', 'residuo_original', 'archivo', 'fila'))):
                     return False
@@ -204,7 +259,7 @@ def filtrar_reporte(datos, parametros):
                 return False
         return True
     avisos = list(datos['maestra']['avisos'])
-    avisos.extend(a['mensaje'] for a in datos['avisos_edp'] if all(
+    avisos.extend(a['mensaje'] for a in datos['avisos_edp'] if coincide_trimestre(a) and all(
         str(a[k]) == filtros[k] for k in ('anio', 'mes', 'edp') if filtros.get(k)))
     if not datos['tickets']:
         avisos.append(f"No hay tickets de {datos['unidad']} guardados en la BD.")

@@ -5,8 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Estados de pago y toneladas — Resiter Minería</title>
   <link rel="stylesheet" href="../css/panel.css">
+  <script src="../js/sesion.js" defer></script>
+  <script src="../js/graficos_hover.js" defer></script>
   <script src="../js/abrir_portal.js"></script>
   <script src="../js/conciliacion.js" defer></script>
+<!-- INICIO CONTROLES UNIVERSALES -->
+<link rel="stylesheet" href="../css/controles-comunes.css">
+<script src="../js/controles-comunes.js" data-menu="../../../../Panel Universal.html"></script>
+<!-- FIN CONTROLES UNIVERSALES -->
 </head>
 <body>
   <header><img class="logo" src="../img/logo_sin_fondo_resiter.png" alt="Resiter"><h1>Reporte Codelco</h1><a class="volver-inicio" href="../../Panel.html">← Volver al inicio</a></header>
@@ -14,11 +20,21 @@
     <a href="Panel_Conciliacion.html" aria-current="page">Estados de pago y toneladas</a>
     <a href="Panel_Densidades.html">Chequeo de densidades</a>
     <a href="Panel_Auditoria_EDP.html">Auditoría de tickets de EDP</a>
+    <a href="Panel_Volumenes.html">Distribución de volumen</a>
   </nav>
+  <section class="filtros" aria-label="Filtros de estados de pago">
+      <label>Unidad<select id="unidad"><option value="">Todas las unidades</option></select></label>
+      <label>Año<select id="anio"><option value="">Todos los años</option></select></label>
+      <label>Trimestre<select id="trimestre"><option value="">Todos los trimestres</option><option value="1">1.er trimestre · Ene–Mar</option><option value="2">2.º trimestre · Abr–Jun</option><option value="3">3.er trimestre · Jul–Sep</option><option value="4">4.º trimestre · Oct–Dic</option></select></label>
+      <label>Mes<select id="mes"><option value="">Todos los meses</option></select></label>
+      <label>N.º EDP<select id="edp"><option value="">Todos los EDP</option></select></label>
+      <label>Conciliación<select id="filtro-estado"><option value="">Todos los estados</option><option value="cuadra">Cuadra</option><option value="diferencia">Con diferencia</option><option value="incompleto">Sin conciliar</option></select></label>
+      <div class="acciones-filtros"><button id="actualizar" class="primario" type="button">Recargar datos</button><button id="limpiar" type="button">Limpiar filtros</button><button id="este-mes" type="button">Este mes</button><button id="generar-pdf" type="button" disabled>Descargar PDF</button><button id="descargar-compilado" type="button" data-permiso="revisar" hidden disabled title="ZIP con un PDF por EDP según la unidad y los demás filtros activos">Descargar compilado por filtro</button></div>
+    </section>
   <main>
     <div class="intro">
       <div><p class="eyebrow">CONCILIACIÓN DE SERVICIOS</p><h2>Estados de pago y toneladas</h2><p>Andina: ítem 1.1 · Retiro de residuos industriales no peligrosos. El Salvador: ítem 2.5.a · CMRIS.</p></div>
-      <div class="acciones-reporte"><button id="generar-pdf" type="button" disabled>Generar reporte PDF</button><button id="descargar-compilado" type="button" disabled title="ZIP con un PDF por unidad, mes, año y EDP de la selección">Descargar compilado por unidad y mes</button><button id="actualizar" class="primario" type="button">Recargar datos</button></div>
+      
     </div>
     <section class="metodo" aria-label="Regla de comparación">
       <span>Precio por tonelada <strong>×</strong> toneladas de tickets</span>
@@ -27,14 +43,7 @@
     <div id="estado" role="status" aria-live="polite">Cargando datos guardados…</div>
     <div id="avisos" hidden></div>
     <p id="pdf-estado" role="status" aria-live="polite" hidden></p>
-    <section class="filtros tarjeta" aria-label="Filtros de estados de pago">
-      <label>Unidad<select id="unidad"><option value="">Todas las unidades</option></select></label>
-      <label>Año<select id="anio"><option value="">Todos los años</option></select></label>
-      <label>Mes<select id="mes"><option value="">Todos los meses</option></select></label>
-      <label>N.º EDP<select id="edp"><option value="">Todos los EDP</option></select></label>
-      <label>Conciliación<select id="filtro-estado"><option value="">Todos los estados</option><option value="cuadra">Cuadra</option><option value="diferencia">Con diferencia</option><option value="incompleto">Sin conciliar</option></select></label>
-      <button id="limpiar" type="button">Limpiar filtros</button>
-    </section>
+    
     <section class="kpis" aria-label="Resumen de la selección">
       <article class="kpi"><span>EDP revisados</span><strong id="kpi-edp">—</strong><small id="kpi-estados">Esperando fuentes</small></article>
       <article class="kpi"><span>Toneladas según tickets</span><strong id="kpi-ton">—</strong><small id="kpi-tickets">Peso Total ÷ 1.000</small></article>

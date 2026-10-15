@@ -14,7 +14,8 @@ from pypdf import PdfReader
 from app.auditoria import Auditoria
 from app.base_datos import actualizar_base_datos
 from app.servidor import ServidorPanel, crear_handler
-from test_auditoria import excel, excel_andina
+from soporte_usuarios import crear_handler_administrador as crear_handler
+from test_auditoria import excel, excel_andina, adjunto
 from test_densidades import maestra, edp, edp_andina
 from test_pdf import instantanea
 
@@ -77,7 +78,7 @@ class CompiladosTests(unittest.TestCase):
             headers, contenido = self.descargar('/api/conciliacion/compilado.zip', datos)
         self.assertEqual(headers.get_content_type(), 'application/zip')
         with ZipFile(BytesIO(contenido)) as archivo:
-            self.assertEqual(set(archivo.namelist()), {
+            self.assertEqual(set(n for n in archivo.namelist() if '/respaldos/' not in n), {
                 'el-salvador-mayo-2026-edp-47-panel-conciliacion.pdf',
                 'andina-mayo-2026-edp-47-panel-conciliacion.pdf',
                 'el-salvador-mayo-2025-edp-47-panel-conciliacion.pdf',
@@ -85,7 +86,7 @@ class CompiladosTests(unittest.TestCase):
                 'el-salvador-mayo-2026-edp-48-panel-conciliacion.pdf'})
             texto = texto_pdf(archivo.read('el-salvador-mayo-2026-edp-47-panel-conciliacion.pdf'))
             self.assertIn('2 cuadran', texto)
-            for nombre in archivo.namelist():
+            for nombre in [n for n in archivo.namelist() if '/respaldos/' not in n]:
                 texto = texto_pdf(archivo.read(nombre))
                 self.assertNotIn('Última lectura', texto)
                 self.assertNotIn(datos['actualizado'], texto)
@@ -97,7 +98,7 @@ class CompiladosTests(unittest.TestCase):
         with ZipFile(BytesIO(contenido)) as archivo:
             self.assertEqual(len(archivo.namelist()), 3)
             self.assertIn('el-salvador-mayo-2025-edp-47-panel-densidades.pdf', archivo.namelist())
-            for nombre in archivo.namelist():
+            for nombre in [n for n in archivo.namelist() if '/respaldos/' not in n]:
                 texto = texto_pdf(archivo.read(nombre))
                 self.assertIn('Tickets: 2', texto)
                 self.assertNotIn('Datos de BD actualizados', texto)
@@ -106,20 +107,52 @@ class CompiladosTests(unittest.TestCase):
         with ZipFile(BytesIO(contenido)) as archivo:
             self.assertEqual(archivo.namelist(), ['andina-mayo-2026-edp-47-panel-densidades.pdf'])
 
-    def test_auditoria_un_pdf_por_edp_con_historial_y_sin_revision(self):
+    def test_auditoria_edp_reune_completados_sin_duplicar_filas_y_sin_fechas(self):
+        fuente = self.revisiones[0]['fuente']
+        lista = self.auditoria.listar_tickets(fuente)
+        # Las primeras dos filas tienen el mismo número de ticket 0.
+        confirmadas = []
+        for fila, nombre in [(2, '0_EDP47.pdf'), (3, '0_EDP47.pdf'), (2, '0_EDP47.pdf')]:
+            m = self.auditoria.seleccionar({'fuente': fuente, 'fila': fila, 'sha256': lista['sha256']})
+            cambio = {'muestra': m['id'], 'fila': fila}
+            self.auditoria.modificar({**cambio, **adjunto(nombre)}, 'adjuntar')
+            confirmadas.append(self.auditoria.modificar({**cambio, 'comprobado': True}, 'comprobar'))
         headers, contenido = self.descargar('/api/auditoria/compilado.zip?unidad=El%20Salvador&anio=2026&mes=5')
         self.assertEqual(headers.get_content_type(), 'application/zip')
         with ZipFile(BytesIO(contenido)) as archivo:
-            self.assertEqual(set(archivo.namelist()), {'el-salvador-mayo-2026-edp-47-panel-auditoria-edp.pdf',
-                                                     'el-salvador-mayo-2026-edp-48-panel-auditoria-edp.pdf'})
-            texto = texto_pdf(archivo.read('el-salvador-mayo-2026-edp-47-panel-auditoria-edp.pdf'))
-            for muestra in self.revisiones:
-                self.assertIn(muestra['id'], texto)
-            self.assertIn('Mayo 2026 | EDP 47', texto)
-            texto = texto_pdf(archivo.read('el-salvador-mayo-2026-edp-48-panel-auditoria-edp.pdf'))
-            self.assertIn('Sin revisiones guardadas', texto)
-            for muestra in self.revisiones:
-                self.assertNotIn(muestra['id'], texto)
+            self.assertEqual([n for n in archivo.namelist() if '/respaldos/' not in n], ['2026/05-mayo/el-salvador-mayo-2026-edp-47-panel-auditoria-edp.pdf'])
+            self.assertTrue(any(n.endswith('/0_EDP47.pdf') for n in archivo.namelist()))
+            pdf = archivo.read(archivo.namelist()[0])
+        texto = texto_pdf(pdf)
+        for esperado in ('Mayo 2026 | EDP 47', 'Tickets revisados: 2', 'Campo adicional',
+                         'Fila Excel 2', 'Fila Excel 3', '0_EDP47.pdf'):
+            self.assertIn(esperado, texto)
+        self.assertEqual(texto.count('COMPROBADO MANUALMENTE'), 2)
+        for excluido in ('Generado:', 'Creada', 'Último cambio', 'Confirmado el:', 'Cargado:',
+                         'PENDIENTE DE COMPROBACIÓN', 'EDP 48', 'Andina', '2025-05'):
+            self.assertNotIn(excluido, texto)
+        for m in confirmadas:
+            self.assertNotIn(m['creado'], texto)
+            self.assertNotIn(m['actualizado'], texto)
+        # Ambas rutas PDF agrupan todas las revisiones del EDP, incluso partiendo de una antigua.
+        for ruta in ['/api/auditoria/reporte.pdf?id=' + confirmadas[0]['id'],
+                     '/api/auditoria/unidad.pdf?unidad=El%20Salvador&anio=2026&mes=5&edp=47']:
+            headers, contenido = self.descargar(ruta)
+            self.assertIn('el-salvador-mayo-2026-edp-47-panel-auditoria-edp.pdf', headers['Content-Disposition'])
+            self.assertIn('Tickets revisados: 2', texto_pdf(contenido))
+        for ruta in ['/api/auditoria/reporte.zip?id=' + confirmadas[0]['id'],
+                     '/api/auditoria/unidad.zip?unidad=El%20Salvador&anio=2026&mes=5&edp=47']:
+            headers, contenido = self.descargar(ruta)
+            self.assertEqual(headers.get_content_type(), 'application/zip')
+            with ZipFile(BytesIO(contenido)) as paquete:
+                self.assertEqual(len(paquete.namelist()), 2)
+                pdf = next(n for n in paquete.namelist() if '/respaldos/' not in n)
+                respaldo = next(n for n in paquete.namelist() if n.endswith('/0_EDP47.pdf'))
+                self.assertIn('Tickets revisados: 2', texto_pdf(paquete.read(pdf)))
+                self.assertEqual(paquete.read(respaldo), b'%PDF-1.4\nRespaldo de prueba')
+        with self.assertRaises(HTTPError) as error:
+            self.descargar('/api/auditoria/unidad.pdf?unidad=El%20Salvador&anio=2026&mes=5&edp=48')
+        self.assertEqual(error.exception.code, 400)
 
     def test_selecciones_vacias_no_descargan_zip_vacio(self):
         for ruta, datos in [('/api/conciliacion/compilado.zip', {'registros': []}),
@@ -129,14 +162,95 @@ class CompiladosTests(unittest.TestCase):
                 self.descargar(ruta, datos)
             self.assertEqual(error.exception.code, 400)
 
+    def test_pdf_edp_andina_solo_confirmados_con_cantidad_en_toneladas(self):
+        fuente = next(f for f in self.auditoria.catalogo()['fuentes'] if f['unidad'] == 'Andina')
+        ruta = self.auditoria.fuentes / fuente['archivo']
+        (ruta.parent / '0_EDP55.pdf').write_bytes(b'%PDF-1.4\nRespaldo Andina')
+        lista = self.auditoria.listar_tickets(fuente['id'])
+        m = self.auditoria.seleccionar({'fuente': fuente['id'], 'fila': 3, 'sha256': lista['sha256']})
+        self.auditoria.modificar({'muestra': m['id'], 'fila': 3, 'comprobado': True}, 'comprobar')
+        headers, contenido = self.descargar('/api/auditoria/unidad.pdf?unidad=Andina&anio=2026&mes=5&edp=55')
+        self.assertIn('andina-mayo-2026-edp-55-panel-auditoria-edp.pdf', headers['Content-Disposition'])
+        texto = texto_pdf(contenido)
+        for esperado in ('Andina | Mayo 2026 | EDP 55', 'Tickets revisados: 1',
+                         '0.2 t', '0_EDP55.pdf'):
+            self.assertIn(esperado, texto)
+        self.assertNotIn('El Salvador', texto)
+        self.assertNotIn('Confirmado el:', texto)
+
+    def test_compilado_por_filtro_organiza_anios_meses(self):
+        fuentes = self.auditoria.catalogo()['fuentes']
+        for fuente in fuentes:
+            if fuente['unidad'] == 'El Salvador' and fuente['edp'] == 48:
+                continue
+            lista = self.auditoria.listar_tickets(fuente['id'])
+            m = self.auditoria.seleccionar({'fuente': fuente['id'], 'fila': 3, 'sha256': lista['sha256']})
+            cambio = {'muestra': m['id'], 'fila': 3}
+            self.auditoria.modificar({**cambio, **adjunto(f'{m["tickets"][0]["ticket"]}_EDP{m["edp"]}.pdf')}, 'adjuntar')
+            self.auditoria.modificar({**cambio, 'comprobado': True}, 'comprobar')
+        ruta = '/api/auditoria/compilado.zip?unidad=El%20Salvador'
+        headers, contenido = self.descargar(ruta)
+        self.assertEqual(headers.get_content_type(), 'application/zip')
+        with ZipFile(BytesIO(contenido)) as archivo:
+            self.assertEqual(set(n for n in archivo.namelist() if '/respaldos/' not in n), {
+                '2025/05-mayo/el-salvador-mayo-2025-edp-47-panel-auditoria-edp.pdf',
+                '2026/05-mayo/el-salvador-mayo-2026-edp-47-panel-auditoria-edp.pdf'})
+            for nombre in [n for n in archivo.namelist() if '/respaldos/' not in n]:
+                texto = texto_pdf(archivo.read(nombre))
+                self.assertIn('Tickets revisados: 1', texto)
+                self.assertNotIn('Andina', texto)
+                self.assertNotIn('EDP 48', texto)
+        _, contenido = self.descargar(ruta + '&anio=2026&mes=5&edp=47&estado=completo')
+        with ZipFile(BytesIO(contenido)) as archivo:
+            self.assertEqual([n for n in archivo.namelist() if '/respaldos/' not in n],
+                             ['2026/05-mayo/el-salvador-mayo-2026-edp-47-panel-auditoria-edp.pdf'])
+        with self.assertRaises(HTTPError) as error:
+            self.descargar(ruta + '&alcance=unidad&anio=2026&edp=48&estado=sin_revision')
+        self.assertEqual(error.exception.code, 400)
+        _, contenido = self.descargar('/api/auditoria/compilado.zip?unidad=Andina&alcance=unidad')
+        with ZipFile(BytesIO(contenido)) as archivo:
+            self.assertEqual([n for n in archivo.namelist() if '/respaldos/' not in n], ['2026/05-mayo/andina-mayo-2026-edp-55-panel-auditoria-edp.pdf'])
+
+    def test_trimestre_sin_anio_compila_meses_de_todos_los_anios(self):
+        esperados = set()
+        for anio, mes in [(2025, 1), (2025, 2), (2025, 3), (2026, 1), (2026, 2), (2026, 3), (2026, 4)]:
+            numero = mes + 60
+            carpeta = self.auditoria.fuentes / 'Codelco Andina' / str(anio) / f'{anio} -{mes:02d} EDP {numero}'
+            carpeta.mkdir(parents=True)
+            (carpeta / 'EDP.xlsx').write_bytes(excel_andina())
+            (carpeta / f'0_EDP{numero}.pdf').write_bytes(b'%PDF-1.4\nRespaldo Andina')
+            fuente = next(f for f in self.auditoria.catalogo()['fuentes']
+                          if f['unidad'] == 'Andina' and f['anio'] == anio and f['mes'] == mes)
+            lista = self.auditoria.listar_tickets(fuente['id'])
+            muestra = self.auditoria.seleccionar({'fuente': fuente['id'], 'fila': 3, 'sha256': lista['sha256']})
+            self.auditoria.modificar({'muestra': muestra['id'], 'fila': 3, 'comprobado': True}, 'comprobar')
+            if mes <= 3:
+                esperados.add(f'{anio}/{mes:02d}-' + ('enero', 'febrero', 'marzo')[mes - 1])
+        ruta = '/api/auditoria/compilado.zip?unidad=Andina&trimestre=1'
+        _, contenido = self.descargar(ruta)
+        with ZipFile(BytesIO(contenido)) as archivo:
+            reportes = [n for n in archivo.namelist() if '/respaldos/' not in n]
+            self.assertEqual(len(reportes), 6)
+            self.assertEqual({'/'.join(n.split('/')[:2]) for n in reportes}, esperados)
+            self.assertEqual(len([n for n in archivo.namelist() if '/respaldos/' in n]), 6)
+        _, contenido = self.descargar(ruta + '&anio=2026')
+        with ZipFile(BytesIO(contenido)) as archivo:
+            reportes = [n for n in archivo.namelist() if '/respaldos/' not in n]
+            self.assertEqual(len(reportes), 3)
+            self.assertTrue(all(n.startswith('2026/') for n in reportes))
+        with self.assertRaises(HTTPError) as error:
+            self.descargar('/api/auditoria/compilado.zip?unidad=Andina&trimestre=5')
+        self.assertEqual(error.exception.code, 400)
+
     def test_pdf_individual_y_botones_publicados(self):
         _, contenido = self.descargar('/api/reporte.pdf', instantanea())
         self.assertNotIn('Última lectura', texto_pdf(contenido))
         _, contenido = self.descargar('/api/densidades/reporte.pdf?unidad=Andina')
         self.assertNotIn('Datos de BD actualizados', texto_pdf(contenido))
-        for pagina in ('Panel_Conciliacion.html', 'Panel_Densidades.html', 'Panel_Auditoria_EDP.html'):
+        for pagina in ('Panel_Conciliacion.html', 'Panel_Densidades.html', 'Panel_Auditoria_EDP.html', 'Panel_Volumenes.html'):
             _, contenido = self.descargar('/web/pages/' + pagina)
             self.assertIn(b'id="descargar-compilado"', contenido)
+            self.assertIn(b'Descargar compilado por filtro', contenido)
 
 
 if __name__ == '__main__':

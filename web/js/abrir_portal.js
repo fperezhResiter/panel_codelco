@@ -1,11 +1,10 @@
-// El acceso desde el archivo local se dirige al servidor del panel.
+// Los archivos locales consultan la publicación; HTTP conserva el panel con sesión.
 (() => {
-  if (location.protocol !== 'file:') return;
-  const paginas = ['Panel_Conciliacion.html', 'Panel_Densidades.html', 'Panel_Auditoria_EDP.html'];
-  const pagina = location.pathname.split('/').pop();
-  const ruta = paginas.includes(pagina) ? '/web/pages/' + pagina : '/Panel.html';
-  const destino = new URL(ruta, 'http://127.0.0.1:8765');
-  destino.search = location.search;
-  destino.hash = location.hash;
-  location.replace(destino.href);
+  if (location.protocol !== 'file:' && !location.pathname.startsWith('/principal/')) return;
+  window.PanelConsulta = true;
+  const base = new URL('../', document.currentScript.src);
+  for (const ruta of ['publicado/datos.js', 'vendor/pdf-lib.min.js', 'js/pdf_consulta.js', 'js/consulta.js']) {
+    const url = new URL(ruta, base).href.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+    document.write('<script src="' + url + '"><' + '/script>');
+  }
 })();

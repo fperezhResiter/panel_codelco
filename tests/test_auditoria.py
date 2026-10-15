@@ -15,8 +15,9 @@ from urllib.parse import urlsplit
 from openpyxl import Workbook
 from openpyxl.worksheet.table import Table
 from app.auditoria import Auditoria, crear_csv, leer_excel, resumen_edp, MAX_ARCHIVO, MAX_SOLICITUD, decodificar, EXT_DOCUMENTOS
-from app.auditoria_pdf import crear_pdf_auditoria, crear_pdf_unidad
+from app.auditoria_pdf import crear_pdf_auditoria, crear_pdf_unidad, seleccionar_edp
 from app.servidor import ServidorPanel, crear_handler
+from soporte_usuarios import crear_handler_administrador as crear_handler
 
 
 def excel(cantidad=8, tabla=True, hoja='RES.NO PELIGROSO'):
@@ -86,6 +87,11 @@ class AuditoriaTests(unittest.TestCase):
         lista = self.a.listar_tickets(self.fuente)
         return self.a.seleccionar({'fuente': self.fuente, 'fila': fila, 'sha256': lista['sha256']})
 
+    def respaldar(self, m):
+        carpeta = (self.fuentes / m['archivo']).parent
+        for t in m['tickets']:
+            (carpeta / f'{t["ticket"]}_EDP{m["edp"]}.pdf').write_bytes(b'%PDF-1.4\nRespaldo de prueba')
+
     def agregar_andina(self):
         carpeta = self.fuentes / 'Codelco Andina' / '2026 -05 EDP 55'
         carpeta.mkdir(parents=True)
@@ -136,8 +142,8 @@ class AuditoriaTests(unittest.TestCase):
         self.assertEqual(muestra['tickets'][0]['campos'][2]['valor'], '0.2')
         csv_texto = crear_csv(muestra).decode('utf-8-sig')
         self.assertIn('Cantidad (t) [C]', csv_texto)
-        for extension in ('pdf', 'csv'):
-            self.assertEqual(self.solicitud_memoria('GET', '/api/auditoria/reporte.' + extension + '?id=' + muestra['id'])['status'], 200)
+        self.assertEqual(self.solicitud_memoria('GET', '/api/auditoria/reporte.pdf?id=' + muestra['id'])['status'], 400)
+        self.assertEqual(self.solicitud_memoria('GET', '/api/auditoria/reporte.csv?id=' + muestra['id'])['status'], 200)
         try:
             from pypdf import PdfReader
         except ImportError:
@@ -151,20 +157,17 @@ class AuditoriaTests(unittest.TestCase):
 
     def test_andina_respaldo_del_servicio_correcto_y_copia_persistente(self):
         fuente, archivo = self.agregar_andina()
-        (archivo.parent / '2.5a TICKET INTERNO.pdf').write_bytes(b'%PDF-1.4\nOtro servicio')
+        (archivo.parent / '1.1 Retiro RINSP.pdf').write_bytes(b'%PDF-1.4\nOtro formato')
         muestra = self.a.sortear({'fuente': fuente, 'cantidad': 3})
-        self.assertIsNone(muestra['respaldo_edp'])
-        cambio = {'muestra': muestra['id'], 'fila': muestra['tickets'][0]['fila'], 'comprobado': True}
-        with self.assertRaisesRegex(ValueError, '1.1 Retiro RINSP'):
+        t = muestra['tickets'][0]
+        cambio = {'muestra': muestra['id'], 'fila': t['fila'], 'comprobado': True}
+        with self.assertRaisesRegex(ValueError, '_EDP55.pdf'):
             self.a.modificar(cambio, 'comprobar')
-        pdf = archivo.parent / '1.1 Retiro RINSP.pdf'
-        contenido = b'%PDF-1.4\nRespaldo Andina'
-        pdf.write_bytes(contenido)
+        self.respaldar(muestra)
         muestra = self.a.modificar(cambio, 'comprobar')
-        self.assertTrue(muestra['respaldo_edp']['guardado'])
         self.assertTrue(muestra['tickets'][0]['comprobado'])
-        pdf.unlink()
-        self.assertEqual(self.a.documento_edp(muestra['id'])[1], contenido)
+        (archivo.parent / f'{t["ticket"]}_EDP55.pdf').unlink()
+        self.assertEqual(self.a.documento_ticket(muestra['id'], t['fila'])[1], b'%PDF-1.4\nRespaldo de prueba')
 
     def solicitud_memoria(self, metodo, ruta, datos=None):
         """Ejecutar el handler sin sockets ni publicar el panel."""
@@ -199,23 +202,39 @@ class AuditoriaTests(unittest.TestCase):
             self.a.seleccionar({'fuente': self.fuente, 'fila': 3, 'sha256': lista['sha256']})
         self.assertEqual(self.a.obtener(m['id'])['poblacion'], 8)
 
-    def test_pdf_de_edp_habilita_ambos_modos_y_guarda_una_copia_por_muestra(self):
-        pdf = self.archivo.parent / '2.5a TICKET INTERNO.PDF'
-        original = b'%PDF-1.4\nRespaldo comun de prueba'
-        pdf.write_bytes(original)
+    def test_preseleccion_manual_de_tres_a_cinco_tickets(self):
+        for fuente in (self.fuente, self.agregar_andina()[0]):
+            lista = self.a.listar_tickets(fuente)
+            datos = {'fuente': fuente, 'sha256': lista['sha256']}
+            filas = [t['fila'] for t in lista['tickets'][:5]][::-1]
+            for cantidad in (3, 4, 5):
+                m = self.a.seleccionar({**datos, 'filas': filas[:cantidad]})
+                self.assertEqual(m['modo'], 'manual')
+                self.assertEqual([t['fila'] for t in self.a.obtener(m['id'])['tickets']], filas[:cantidad])
+                self.assertTrue(all(not t['comprobado'] for t in m['tickets']))
+            antes = len(self.a.catalogo()['muestras'])
+            for invalidas in ([], filas[:2], list(range(2, 8)), [2, 2, 3], [2, 3, True],
+                              [2, 3, '4'], [2, 3, 10000], None, '2,3,4'):
+                with self.assertRaises(ValueError):
+                    self.a.seleccionar({**datos, 'filas': invalidas})
+            with self.assertRaisesRegex(ValueError, 'Excel cambió'):
+                self.a.seleccionar({**datos, 'filas': filas[:3], 'sha256': 'anterior'})
+            self.assertEqual(len(self.a.catalogo()['muestras']), antes)
+
+    def test_pdf_individual_habilita_ambos_modos_y_guarda_una_copia_por_ticket(self):
+        (self.archivo.parent / '2.5a TICKET INTERNO.PDF').write_bytes(b'%PDF-1.4\nRespaldo comun')
         for m in (self.sortear(), self.seleccionar()):
-            self.assertEqual(m['respaldo_edp']['nombre'], pdf.name)
-            self.assertFalse(any(t['comprobado'] for t in m['tickets']))
-            self.assertFalse(any(t['documentos'] for t in m['tickets']))
+            for t in m['tickets']:
+                (self.archivo.parent / f'{t["ticket"]}_EDP47.pdf').unlink(missing_ok=True)
+            with self.assertRaises(ValueError):
+                self.a.modificar({'muestra': m['id'], 'fila': m['tickets'][0]['fila'], 'comprobado': True}, 'comprobar')
+            self.respaldar(m)
             for t in m['tickets']:
                 m = self.a.modificar({'muestra': m['id'], 'fila': t['fila'], 'comprobado': True}, 'comprobar')
-            self.assertTrue(m['respaldo_edp']['guardado'])
             self.assertTrue(all(t['comprobado'] for t in m['tickets']))
+            self.assertTrue(all(t['respaldo_autorizado'] for t in m['tickets']))
             with self.a.conexion() as db:
-                self.assertEqual(db.execute('SELECT count(*) FROM documentos WHERE muestra=? AND fila=0', (m['id'],)).fetchone()[0], 1)
-        pdf.unlink()
-        self.assertEqual(self.a.documento_edp(m['id'])[1], original)
-        self.assertTrue(self.a.obtener(m['id'])['tickets'][0]['comprobado'])
+                self.assertEqual(db.execute('SELECT count(*) FROM documentos WHERE muestra=? AND fila=0', (m['id'],)).fetchone()[0], 0)
 
     def test_pdf_solo_del_edp_correcto_y_detectado_en_revision_existente(self):
         otro = self.fuentes / 'Codelco El Salvador' / '2026 -06 EDP 48'
@@ -246,12 +265,14 @@ class AuditoriaTests(unittest.TestCase):
             correcto = archivo.parent / f'{base} ( EDP {m["edp"]}).PDF'
             correcto.write_bytes(b'%PDF-1.4\nEste EDP')
             cambio = {'muestra': m['id'], 'fila': m['tickets'][0]['fila'], 'comprobado': True}
+            with self.assertRaises(ValueError): self.a.modificar(cambio, 'comprobar')
+            self.respaldar(m)
             m = self.a.modificar(cambio, 'comprobar')
             self.assertTrue(m['tickets'][0]['comprobado'])
-            self.assertFalse(m['tickets'][0]['documentos'])
+            self.assertTrue(m['tickets'][0]['documentos'])
             self.assertEqual(m['respaldo_edp']['nombre'], correcto.name)
             correcto.unlink()
-            self.assertEqual(self.a.documento_edp(m['id'])[1], b'%PDF-1.4\nEste EDP')
+            self.assertEqual(self.a.documento_ticket(m['id'], m['tickets'][0]['fila'])[1], b'%PDF-1.4\nRespaldo de prueba')
 
     def test_cobertura_no_duplica_edp_y_actualiza_chequeo(self):
         fuente_andina, _ = self.agregar_andina()
@@ -263,6 +284,7 @@ class AuditoriaTests(unittest.TestCase):
         (self.archivo.parent / '2.5a TICKET INTERNO (EDP 47).pdf').write_bytes(b'%PDF-1.4\nEste EDP')
         m = self.seleccionar()
         segunda = self.seleccionar(4)
+        self.respaldar(m); self.respaldar(segunda)
         m_andina = self.a.sortear({'fuente': fuente_andina, 'cantidad': 3})
         cambio = {'muestra': m['id'], 'fila': m['tickets'][0]['fila'], 'comprobado': True}
         self.a.modificar(cambio, 'comprobar')
@@ -298,6 +320,7 @@ class AuditoriaTests(unittest.TestCase):
         (self.archivo.parent / '2.5a TICKET INTERNO.pdf').write_bytes(b'%PDF-1.4\nEste EDP')
         antigua = self.sortear()
         vigente = self.sortear()
+        self.respaldar(antigua); self.respaldar(vigente)
         for ticket in vigente['tickets']:
             self.a.modificar({'muestra': vigente['id'], 'fila': ticket['fila'], 'comprobado': True}, 'comprobar')
         edp = self.a.catalogo()['estados_pago'][0]
@@ -334,19 +357,24 @@ class AuditoriaTests(unittest.TestCase):
         self.assertEqual(resumen_edp([], [nueva, empate]), resumen_edp([], [empate, nueva]))
         self.assertEqual(resumen_edp([], [empate, nueva])[0]['color'], 'amarillo')
 
-    def test_pdf_unidad_incluye_periodos_sin_muestra_y_todos_los_campos(self):
+    def test_pdf_edp_solo_completados_y_todos_los_campos_sin_fechas_administrativas(self):
         self.agregar_andina()
         otro = self.fuentes / 'Codelco El Salvador' / '2025 -12 EDP 42'
         otro.mkdir()
         (otro / 'Sin_revision.xlsx').write_bytes(excel())
         (self.archivo.parent / '2.5a TICKET INTERNO (EDP 47).pdf').write_bytes(b'%PDF-1.4\nEste EDP')
         m = self.seleccionar()
+        self.respaldar(m)
         self.a.modificar({'muestra': m['id'], 'fila': m['tickets'][0]['fila'], 'comprobado': True}, 'comprobar')
-        contenido = crear_pdf_unidad(self.a.reporte_unidad('El Salvador'))
+        reporte = self.a.reporte_unidad('El Salvador')
+        with self.assertRaises(ValueError):
+            crear_pdf_unidad(reporte)
+        contenido = crear_pdf_unidad(seleccionar_edp(reporte, m))
         self.assertTrue(contenido.startswith(b'%PDF'))
-        r = self.solicitud_memoria('GET', '/api/auditoria/unidad.pdf?unidad=El%20Salvador')
+        self.assertEqual(self.solicitud_memoria('GET', '/api/auditoria/unidad.pdf?unidad=El%20Salvador')['status'], 400)
+        r = self.solicitud_memoria('GET', '/api/auditoria/unidad.pdf?unidad=El%20Salvador&anio=2026&mes=5&edp=47')
         self.assertEqual((r['status'], r['tipo']), (200, 'application/pdf'))
-        self.assertEqual(r['descarga'], 'el-salvador-varios-meses-2025-12-a-2026-05-edp-42-47-panel-auditoria-unidad.pdf')
+        self.assertEqual(r['descarga'], 'el-salvador-mayo-2026-edp-47-panel-auditoria-edp.pdf')
         for unidad in ('', 'Otro'):
             self.assertEqual(self.solicitud_memoria('GET', '/api/auditoria/unidad.pdf?unidad=' + unidad)['status'], 400)
         try:
@@ -354,14 +382,17 @@ class AuditoriaTests(unittest.TestCase):
         except ImportError:
             self.skipTest('pypdf opcional no disponible.')
         textos = '\n'.join(p.extract_text() for p in PdfReader(BytesIO(contenido)).pages)
-        for esperado in ('2025-12', '2026-05', 'Sin revisiones guardadas', m['id'], m['sha256'],
-                         'Campo adicional', 'COMPROBADO MANUALMENTE', '2.5a TICKET INTERNO (EDP 47).pdf'):
+        for esperado in ('Mayo 2026', 'EDP 47', 'Tickets revisados: 1',
+                         'Campo adicional', 'COMPROBADO MANUALMENTE', '0_EDP47.pdf'):
             self.assertIn(esperado, textos)
-        self.assertNotIn('Andina', textos)
+        for excluido in ('Andina', '2025-12', 'Sin revisiones guardadas', 'Generado:', 'Creada',
+                         'Último cambio', 'Cargado:', 'Confirmado el:', m['creado'], m['actualizado']):
+            self.assertNotIn(excluido, textos)
 
     def test_adjuntos_30mb_en_ambos_modos_y_rechazo_superior(self):
-        archivo = adjunto('respaldo.pdf', b'x' * MAX_ARCHIVO)
+        contenido_grande = b'%PDF-' + b'x' * (MAX_ARCHIVO - 5)
         for m in (self.sortear(), self.seleccionar()):
+            archivo = adjunto(f'{m["tickets"][0]["ticket"]}_EDP47.pdf', contenido_grande)
             datos = {**archivo, 'muestra': m['id'], 'fila': m['tickets'][0]['fila']}
             self.assertLess(len(json.dumps(datos).encode()), MAX_SOLICITUD)
             respuesta = self.solicitud_memoria('POST', '/api/auditoria/adjuntar', datos)
@@ -380,8 +411,8 @@ class AuditoriaTests(unittest.TestCase):
         self.assertEqual(r['status'], 200)
         m = json.loads(r['contenido'])
         self.assertEqual(m['modo'], 'manual')
-        for extension in ('pdf', 'csv'):
-            self.assertEqual(self.solicitud_memoria('GET', '/api/auditoria/reporte.' + extension + '?id=' + m['id'])['status'], 200)
+        self.assertEqual(self.solicitud_memoria('GET', '/api/auditoria/reporte.pdf?id=' + m['id'])['status'], 400)
+        self.assertEqual(self.solicitud_memoria('GET', '/api/auditoria/reporte.csv?id=' + m['id'])['status'], 200)
         self.assertEqual(self.solicitud_memoria('POST', '/api/auditoria/importar', {})['status'], 404)
 
     def test_exportaciones_manual_respaldo_comun_sin_formula_peso(self):
@@ -430,12 +461,36 @@ class AuditoriaTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'no alcanza'): self.sortear(3)
         self.assertEqual(self.a.catalogo()['muestras'], [])
 
+    def test_subir_respaldo_guarda_en_edp_anual_y_rechaza_nombre_incorrecto(self):
+        fuente_andina, archivo_andina = self.agregar_andina()
+        for fuente, archivo in ((self.fuente, self.archivo), (fuente_andina, archivo_andina)):
+            muestra = self.a.sortear({'fuente': fuente, 'cantidad': 3})
+            # La muestra se creó antes de mover el EDP a su carpeta anual.
+            anual = archivo.parent.parent / '2026'
+            anual.mkdir(exist_ok=True)
+            destino = anual / archivo.parent.name
+            archivo.parent.rename(destino)
+            ticket = muestra['tickets'][0]
+            nombre = f'{ticket["ticket"]}_EDP{muestra["edp"]}.pdf'
+            cambio = {'muestra': muestra['id'], 'fila': ticket['fila']}
+            with self.assertRaisesRegex(ValueError, 'exactamente'):
+                self.a.modificar({**cambio, **adjunto('otro.pdf')}, 'adjuntar')
+            self.assertFalse((destino / 'otro.pdf').exists())
+            m = self.a.modificar({**cambio, **adjunto(nombre)}, 'adjuntar')
+            self.assertEqual((destino / nombre).read_bytes(), b'%PDF-1.4\nRespaldo de prueba')
+            respaldo = next(t for t in m['tickets'] if t['fila'] == ticket['fila'])['respaldo_ticket']
+            self.assertEqual(respaldo['archivo'], (destino / nombre).relative_to(self.fuentes).as_posix())
+            self.assertFalse(next(t for t in m['tickets'] if t['fila'] == ticket['fila'])['comprobado'])
+            with self.assertRaisesRegex(ValueError, 'contenido diferente'):
+                self.a.modificar({**cambio, **adjunto(nombre, b'%PDF-1.4\nOtro contenido')}, 'adjuntar')
+            self.assertEqual((destino / nombre).read_bytes(), b'%PDF-1.4\nRespaldo de prueba')
+
     def test_documentos_persisten_y_comprobacion_solo_manual(self):
         m = self.sortear()
         cambio = {'muestra': m['id'], 'fila': m['tickets'][0]['fila']}
-        with self.assertRaisesRegex(ValueError, 'Adjunta'):
+        with self.assertRaisesRegex(ValueError, 'Falta el respaldo'):
             self.a.modificar({**cambio, 'comprobado': True}, 'comprobar')
-        m = self.a.modificar({**cambio, **adjunto()}, 'adjuntar')
+        m = self.a.modificar({**cambio, **adjunto(f'{m["tickets"][0]["ticket"]}_EDP47.pdf')}, 'adjuntar')
         self.assertFalse(m['tickets'][0]['comprobado'])
         m = self.a.modificar({**cambio, 'comprobado': True}, 'comprobar')
         self.assertTrue(m['tickets'][0]['comprobado'])
@@ -446,8 +501,9 @@ class AuditoriaTests(unittest.TestCase):
         # Cambiar la fuente no altera lo que se revisó.
         self.archivo.write_bytes(excel(2))
         self.assertEqual(reinicio.obtener(m['id'])['poblacion'], 8)
-        m = self.a.modificar({**cambio, **adjunto('segundo.txt', b'Otro respaldo')}, 'adjuntar')
-        self.assertFalse(m['tickets'][0]['comprobado'])
+        with self.assertRaises(ValueError):
+            self.a.modificar({**cambio, **adjunto('segundo.txt', b'Otro respaldo')}, 'adjuntar')
+        self.a.modificar({**cambio, 'comprobado': False}, 'comprobar')
         self.a.modificar({**cambio, 'comprobado': True}, 'comprobar')
         m = self.a.modificar({**cambio, 'documento': doc['id']}, 'quitar')
         self.assertFalse(m['tickets'][0]['comprobado'])
@@ -455,7 +511,7 @@ class AuditoriaTests(unittest.TestCase):
     def test_aislamiento_entre_tickets_y_muestras(self):
         m, otro = self.sortear(), self.sortear()
         cambio = {'muestra': m['id'], 'fila': m['tickets'][0]['fila']}
-        m = self.a.modificar({**cambio, **adjunto()}, 'adjuntar')
+        m = self.a.modificar({**cambio, **adjunto(f'{m["tickets"][0]["ticket"]}_EDP47.pdf')}, 'adjuntar')
         doc = m['tickets'][0]['documentos'][0]
         with self.assertRaises(ValueError):
             self.a.modificar({'muestra': otro['id'], 'fila': otro['tickets'][0]['fila'], 'documento': doc['id']}, 'quitar')
@@ -465,7 +521,7 @@ class AuditoriaTests(unittest.TestCase):
     def test_cambios_concurrentes_no_pierden_documentos(self):
         m = self.sortear()
         def subir(ticket):
-            self.a.modificar({'muestra': m['id'], 'fila': ticket['fila'], **adjunto()}, 'adjuntar')
+            self.a.modificar({'muestra': m['id'], 'fila': ticket['fila'], **adjunto(f'{ticket["ticket"]}_EDP47.pdf')}, 'adjuntar')
         with ThreadPoolExecutor(max_workers=3) as executor:
             list(executor.map(subir, m['tickets']))
         self.assertTrue(all(len(t['documentos']) == 1 for t in self.a.obtener(m['id'])['tickets']))
@@ -515,7 +571,7 @@ class AuditoriaTests(unittest.TestCase):
         try:
             m = post('sortear', {'fuente': self.fuente, 'cantidad': 3})
             cambio = {'muestra': m['id'], 'fila': m['tickets'][0]['fila']}
-            post('adjuntar', {**cambio, **adjunto('guía.pdf')})
+            post('adjuntar', {**cambio, **adjunto(f'{m["tickets"][0]["ticket"]}_EDP47.pdf')})
             m = post('comprobar', {**cambio, 'comprobado': True})
             for ruta, tipo in [('reporte.pdf', 'application/pdf'), ('reporte.csv', 'text/csv')]:
                 with urlopen(base + '/api/auditoria/' + ruta + '?id=' + m['id']) as r:

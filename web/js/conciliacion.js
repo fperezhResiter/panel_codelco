@@ -11,11 +11,14 @@
   })[c]);
   const estados = {cuadra: ['Cuadra', 'verde'], diferencia: ['Con diferencia', 'rojo'], incompleto: ['Sin conciliar', 'amarillo']};
   const meses = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
-  const filtros = ['unidad', 'anio', 'mes', 'edp', 'filtro-estado'];
+  const filtros = ['unidad', 'anio', 'trimestre', 'mes', 'edp', 'filtro-estado'];
   let datos = null, visibles = [], cargando = false, generandoPdf = false;
 
   function opciones(id, opciones) {
     const actual = $(id).value, primero = $(id).options[0].textContent;
+    if (actual && ['anio', 'mes'].includes(id) && !opciones.some(([v]) => String(v) === actual)) {
+      opciones.push([actual, id === 'mes' ? meses[Number(actual)-1] : actual]);
+    }
     $(id).replaceChildren(new Option(primero, ''));
     opciones.forEach(([valor, texto]) => $(id).add(new Option(texto, valor)));
     if (opciones.some(([v]) => String(v) === actual)) $(id).value = actual;
@@ -36,17 +39,17 @@
     }
     const maximo = Math.max(...registros.flatMap(r => [Math.abs(r[a]), Math.abs(r[b])]), 1);
     const formato = v => moneda ? pesos(v) : numero(v, 3) + ' t';
-    const barra = (v, clase, etiqueta) => '<div class="barra" aria-label="' + escapar(etiqueta + ': ' + formato(v)) + '">' +
+    const barra = (v, clase, etiqueta, clave) => '<div class="barra" tabindex="0" data-grafico-clave="' + escapar(clave) + '" aria-label="' + escapar(etiqueta + ': ' + formato(v)) + '">' +
       '<div class="barra-pista"><span class="barra-relleno ' + clase + '" style="width:' + Math.abs(v)/maximo*100 + '%"></span></div>' +
       '<span>' + escapar(formato(v)) + '</span></div>';
     contenedor.innerHTML = registros.map(r => '<div class="barra-fila"><div class="barra-etiqueta"><strong>' +
       escapar(r.mes_nombre + ' ' + r.anio) + '</strong>' + escapar(r.unidad + ' · EDP ' + r.edp) +
-      '</div><div class="barras">' + barra(r[a], '', 'EDP') + barra(r[b], 'ticket', moneda ? 'Esperado' : 'Tickets') + '</div></div>').join('');
+      '</div><div class="barras">' + barra(r[a], '', 'EDP', JSON.stringify([r.unidad,r.anio,r.mes,r.edp,'edp'])) + barra(r[b], 'ticket', moneda ? 'Esperado' : 'Tickets', JSON.stringify([r.unidad,r.anio,r.mes,r.edp,'ticket'])) + '</div></div>').join('');
   }
 
   function renderizar() {
     if (!datos) return;
-    visibles = datos.registros.filter(r => filtros.every(k => !$(k).value || String(r[k === 'filtro-estado' ? 'estado' : k]) === $(k).value))
+    visibles = datos.registros.filter(r => filtros.every(k => !$(k).value || String(k === 'trimestre' ? Math.ceil(Number(r.mes) / 3) : r[k === 'filtro-estado' ? 'estado' : k]) === $(k).value))
       .sort((a,b) => (a.periodo || '').localeCompare(b.periodo || '') || (a.unidad || '').localeCompare(b.unidad || '') || a.edp-b.edp);
     const validos = visibles.filter(r => r.estado !== 'incompleto');
     const suma = k => validos.length ? validos.reduce((n,r) => n + r[k], 0) : null;
@@ -129,7 +132,7 @@
       if (!respuesta.ok) throw new Error(contenido.error || 'No se pudieron leer las fuentes.');
       datos = contenido;
       prepararFiltros();
-      $('estado').textContent = 'Base actualizada: '+new Date(datos.actualizado).toLocaleString('es-CL')+' · '+datos.registros.length+' archivos EDP';
+      $('estado').textContent = window.PanelConsulta ? datos.registros.length+' archivos EDP' : 'Base actualizada: '+new Date(datos.actualizado).toLocaleString('es-CL')+' · '+datos.registros.length+' archivos EDP';
       $('avisos').hidden = !datos.avisos.length;
       $('avisos').innerHTML = datos.avisos.map(v=>'<p>'+escapar(v)+'</p>').join('');
       $('ruta-fuentes').textContent = 'Carpeta consultada: '+datos.fuentes;
@@ -162,7 +165,7 @@
     // Se envía la instantánea visible; nunca se releen los Excel al exportar.
     const campos = ['unidad','item','anio','mes','mes_nombre','periodo','edp','estado','peso_kg','ton_tickets',
       'ton_edp','precio','monto_edp','monto_esperado','diferencia','avisos','errores'];
-    const nombres = ['Unidad','Año','Mes','EDP','Conciliación'];
+    const nombres = ['Unidad','Año','Trimestre','Mes','EDP','Conciliación'];
     const seleccion = Object.fromEntries(filtros.map((id,i) => [nombres[i], $(id).selectedOptions[0].textContent]));
     const instantanea = {
       filtros: seleccion, avisos: datos.avisos,
@@ -192,7 +195,7 @@
     } finally {
       generandoPdf = false;
       $('generar-pdf').disabled = $('descargar-compilado').disabled = !visibles.length || cargando;
-      boton.textContent = compilado ? 'Descargar compilado por unidad y mes' : 'Generar reporte PDF';
+      boton.textContent = compilado ? 'Descargar compilado por filtro' : 'Descargar PDF';
     }
   }
 
@@ -214,6 +217,16 @@
   }
   filtros.forEach(id=>$(id).addEventListener('change',renderizar));
   $('limpiar').addEventListener('click',()=>{ filtros.forEach(id=>$(id).value=''); renderizar(); });
+  $('este-mes').addEventListener('click', () => {
+    filtros.filter(id => id !== 'unidad').forEach(id => $(id).value = '');
+    const partes = new Intl.DateTimeFormat('es-CL', {timeZone: 'America/Santiago', year: 'numeric', month: 'numeric'}).formatToParts(new Date());
+    for (const [id, tipo] of [['anio', 'year'], ['mes', 'month']]) {
+      const valor = String(Number(partes.find(p => p.type === tipo).value));
+      if (![...$(id).options].some(o => o.value === valor)) $(id).add(new Option(id === 'mes' ? meses[Number(valor)-1] : valor, valor));
+      $(id).value = valor;
+    }
+    renderizar();
+  });
   $('actualizar').addEventListener('click',cargar);
   $('exportar').addEventListener('click',exportar);
   $('generar-pdf').addEventListener('click', () => generarPdf());

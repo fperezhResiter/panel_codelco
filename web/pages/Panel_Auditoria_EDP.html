@@ -5,8 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Auditoría de tickets de EDP — Resiter Minería</title>
   <link rel="stylesheet" href="../css/panel.css">
+  <script src="../js/sesion.js" defer></script>
+  <script src="../js/graficos_hover.js" defer></script>
   <script src="../js/abrir_portal.js"></script>
   <script src="../js/auditoria.js" defer></script>
+<!-- INICIO CONTROLES UNIVERSALES -->
+<link rel="stylesheet" href="../css/controles-comunes.css">
+<script src="../js/controles-comunes.js" data-menu="../../../../Panel Universal.html"></script>
+<!-- FIN CONTROLES UNIVERSALES -->
 </head>
 <body>
   <header><img class="logo" src="../img/logo_sin_fondo_resiter.png" alt="Resiter"><h1>Reporte Codelco</h1><a class="volver-inicio" href="../../Panel.html">← Volver al inicio</a></header>
@@ -14,11 +20,21 @@
     <a href="Panel_Conciliacion.html">Estados de pago y toneladas</a>
     <a href="Panel_Densidades.html">Chequeo de densidades</a>
     <a href="Panel_Auditoria_EDP.html" aria-current="page">Auditoría de tickets de EDP</a>
+    <a href="Panel_Volumenes.html">Distribución de volumen</a>
   </nav>
+  <section class="filtros filtros-chequeo" aria-label="Filtros de la tabla de chequeo">
+          <label>Unidad<select id="chequeo-unidad" disabled><option value="">Todas las unidades</option></select></label>
+          <label>Año<select id="chequeo-anio" disabled><option value="">Todos los años</option></select></label>
+          <label>Trimestre<select id="chequeo-trimestre" disabled><option value="">Todos los trimestres</option></select></label>
+          <label>Mes<select id="chequeo-mes" disabled><option value="">Todos los meses</option></select></label>
+          <label>EDP<select id="chequeo-edp" disabled><option value="">Todos los EDP</option></select></label>
+          <label>Estado<select id="chequeo-estado" disabled><option value="">Todos los estados</option><option value="completo">Chequeo completo</option><option value="parcial">Chequeo parcial</option><option value="sin_revision">Sin revisión</option></select></label>
+          <div class="acciones-filtros"><button id="actualizar" class="primario" type="button">Actualizar fuentes y chequeos</button><button id="chequeo-limpiar" type="button" disabled>Limpiar filtros</button><button id="chequeo-este-mes" type="button" disabled>Este mes</button><button id="descargar-compilado" type="button" data-permiso="revisar" hidden disabled title="Selecciona una unidad: descarga los EDP que coincidan con los filtros de chequeo, organizados por año y mes">Descargar compilado por filtro</button></div>
+        </section>
   <main class="auditoria">
     <div class="intro">
-      <div><p class="eyebrow">PANEL 03 · REVISIÓN DOCUMENTAL</p><h2>Auditoría de tickets de EDP</h2><p>Selecciona un EDP, elige un ticket o sortea una muestra y registra tu revisión.</p></div>
-      <div class="acciones-reporte"><button id="descargar-compilado" type="button" disabled title="ZIP con un PDF por EDP de la unidad, año y mes seleccionados">Descargar compilado por unidad y mes</button><button id="actualizar" type="button">Actualizar fuentes y chequeos</button></div>
+      <div><p class="eyebrow">PANEL 03 · REVISIÓN DOCUMENTAL</p><h2>Auditoría de tickets de EDP</h2><p id="descripcion-auditoria">Consulta los tickets de las muestras guardadas y sus estados.</p></div>
+      
     </div>
     <div class="metodo">Andina: hoja 1.1, Cantidad en toneladas · El Salvador: RES.NO PELIGROSO(S), Peso Total en kg · Selección de un ticket o sorteo de 3 a 5 registros · Comprobación manual</div>
     <p id="estado" role="status" aria-live="polite">Cargando EDP y auditorías guardadas…</p>
@@ -26,48 +42,58 @@
     <div id="avisos" hidden></div>
     <section class="tarjeta cobertura-auditoria" aria-label="Chequeo de estados de pago por unidad">
       <div class="titulo"><div><h3>Estado de chequeo por unidad</h3><p>Todos los períodos · Cada EDP se cuenta una sola vez por unidad.</p></div>
-        <button id="pdf-unidad" type="button" disabled>Descargar PDF de toda la unidad</button>
+        <button id="pdf-unidad" type="button" disabled>Descargar PDF y respaldos del EDP</button>
       </div>
       <div class="contenido">
+        
+        <p class="nota-guardado">Selecciona una unidad aquí para descargar su compilado según los filtros activos de año, trimestre, mes, EDP y estado, organizado por año y mes. Sin año seleccionado, incluye todos los años disponibles. Para descargar un PDF individual, filtra hasta dejar un único EDP.</p>
         <p><span class="semaforo verde">Chequeo completo</span> Todos los tickets seleccionados comprobados · <span class="semaforo amarillo">Chequeo parcial</span> Algunos comprobados · <span class="semaforo rojo">Sin revisión</span> Ningún ticket comprobado.</p>
         <div id="grafico-chequeos" class="grafico" aria-live="polite"></div>
         <p id="alcance-unidad" class="nota-guardado"></p>
-        <div class="scroll"><table><thead><tr><th>Período</th><th>EDP</th><th>Revisiones</th><th>Tickets chequeados</th><th>Tickets pendientes</th><th>Estado de la selección</th></tr></thead><tbody id="estados-pago"></tbody></table></div>
-        <p class="nota-guardado">Los conteos de tickets incluyen cada aparición en una revisión guardada. “Chequeo completo” se refiere a los tickets seleccionados, no a toda la población del EDP.</p>
+        <div class="scroll"><table><thead><tr><th>Unidad</th><th>Período</th><th>EDP</th><th>Revisiones</th><th>Tickets chequeados</th><th>Tickets pendientes</th><th>Estado de la selección</th></tr></thead><tbody id="estados-pago"></tbody></table></div>
+        <p class="nota-guardado">Los conteos de la tabla corresponden a la revisión vigente. “Chequeo completo” se refiere a los tickets seleccionados. El PDF reúne los tickets completados de todas las revisiones del EDP y cuenta cada fila de una misma versión del Excel una sola vez.</p>
       </div>
     </section>
-    <section class="tarjeta filtros" aria-label="Selección del EDP">
+    <section class="tarjeta filtros" aria-label="Selección del EDP para sortear o revisar tickets">
       <label>Unidad<select id="unidad" disabled></select></label>
       <label>Año<select id="anio" disabled></select></label>
+      <label>Trimestre<select id="trimestre" disabled><option value="">Todos los trimestres</option></select></label>
       <label>Mes<select id="mes" disabled></select></label>
       <label class="filtro-edp">Excel EDP<select id="fuente" disabled></select></label>
-      <label>Tickets a sortear<select id="cantidad"><option value="3">3 tickets</option><option value="4">4 tickets</option><option value="5">5 tickets</option></select></label>
-      <button id="sortear" class="primario" type="button" disabled>Sortear tickets</button>
+      <label data-permiso="revisar" hidden>Tickets a sortear<select id="cantidad"><option value="3">3 tickets</option><option value="4">4 tickets</option><option value="5">5 tickets</option></select></label>
+      <div class="acciones-filtros"><button id="limpiar" type="button" disabled>Limpiar filtros</button><button id="este-mes" type="button" disabled>Este mes</button></div>
+      <button id="sortear" class="primario" type="button" data-permiso="revisar" hidden disabled>Sortear tickets</button>
     </section>
-    <section class="tarjeta seleccion-ticket" aria-label="Selección manual de ticket">
-      <div class="titulo"><div><h3>Revisar un ticket específico</h3><p>Elige un registro del EDP seleccionado, sin realizar un sorteo.</p></div></div>
+    <section class="tarjeta seleccion-ticket" aria-label="Selección manual de tickets" data-permiso="revisar" hidden>
+      <div class="titulo"><div><h3>Elegir tickets para revisión</h3><p>Preselecciona entre 3 y 5 tickets del EDP. Se abrirán juntos con el mismo formato de una muestra sorteada.</p></div></div>
       <div class="filtros">
         <button type="button" id="listar-tickets" disabled>Cargar lista de tickets</button>
         <label>Buscar por ticket, fila o fecha<input id="buscar-ticket" type="search" placeholder="Número de ticket" disabled></label>
         <label class="filtro-edp">Ticket del EDP<select id="ticket-elegido" disabled><option value="">Carga la lista de tickets</option></select></label>
-        <button type="button" id="revisar-ticket" class="primario" disabled>Revisar ticket seleccionado</button>
+        <button type="button" id="agregar-ticket" disabled>Añadir a la selección</button>
+        <button type="button" id="revisar-ticket" class="primario" disabled>Revisar tickets seleccionados</button>
+      </div>
+      <div class="contenido">
+        <p id="seleccion-contador" role="status" aria-live="polite">0 de 5 tickets preseleccionados · Elige al menos 3.</p>
+        <ul id="tickets-preseleccionados" class="lista-respaldos" aria-label="Tickets preseleccionados"></ul>
       </div>
     </section>
     <section class="tarjeta historial-auditoria" aria-label="Historial de muestras">
       <label>Muestras guardadas de la unidad y período seleccionados<select id="historial" disabled><option value="">Sin muestras guardadas</option></select></label>
       <p>Cada selección o sorteo crea una revisión nueva. Las anteriores conservan sus documentos y comprobaciones.</p>
     </section>
-    <section id="sin-muestra" class="tarjeta vacio"><h3>Prepara tu revisión de auditoría</h3><p>Elige un ticket específico, sortea 3, 4 o 5 tickets, o retoma una revisión del historial.</p></section>
+    <section id="sin-muestra" class="tarjeta vacio"><h3>Auditoría de tickets</h3><p id="indicacion-auditoria">Selecciona una muestra guardada del historial para consultar sus tickets y estados.</p></section>
     <div id="revision" hidden>
       <section class="kpis" aria-label="Resumen de auditoría">
         <div class="kpi"><span>Registros en el EDP</span><strong id="kpi-poblacion">0</strong><small id="poblacion-hoja">Tickets de la hoja del servicio</small></div>
         <div class="kpi"><span>Tickets seleccionados</span><strong id="kpi-muestra">0</strong><small>Sin repetir filas en la muestra</small></div>
-        <div class="kpi"><span>Comprobados manualmente</span><strong id="kpi-comprobados">0</strong><small>Con respaldo y casilla marcada</small></div>
-        <div class="kpi"><span>Pendientes de comprobación</span><strong id="kpi-pendientes">0</strong><small>Requieren revisión de una persona</small></div>
+        <div class="kpi kpi-verde"><span>Comprobados manualmente</span><strong id="kpi-comprobados">0</strong><small>Con respaldo y casilla marcada</small></div>
+        <div class="kpi kpi-amarillo"><span>Pendientes de comprobación</span><strong id="kpi-pendientes">0</strong><small>Requieren revisión de una persona</small></div>
       </section>
       <section class="tarjeta resumen-auditoria">
         <div class="titulo"><div><h3 id="muestra-titulo"></h3><p id="muestra-fecha"></p></div>
-          <div class="acciones-reporte"><button id="generar-pdf" type="button">PDF de esta revisión</button><button id="exportar" type="button">Descargar CSV</button></div>
+          <div class="acciones-reporte"><button id="generar-pdf" type="button">PDF y respaldos de tickets completados</button><button id="exportar" type="button">Descargar CSV</button><button id="eliminar-muestra" type="button" data-permiso="revisar" hidden disabled>Eliminar muestra</button></div>
+          <p id="aviso-pdf-muestra" class="nota-guardado" hidden>Este EDP todavía no tiene tickets comprobados para generar el PDF. Auditor o Admin debe registrar una comprobación. Puedes descargar el CSV con los estados actuales.</p>
         </div>
         <div class="contenido"><p id="muestra-origen"></p><p>Revisa los respaldos del ticket o el PDF del servicio en la carpeta de su EDP: 1.1 Retiro RINSP para Andina, 2.5a TICKET INTERNO para El Salvador. Marca la casilla cuando hayas comprobado que coinciden.</p><div id="respaldo-edp"></div><p class="nota-guardado">Las comprobaciones y los respaldos quedan guardados en la BD. Al agregar o quitar un respaldo adjunto, la casilla vuelve a quedar pendiente.</p><div id="muestra-avisos"></div></div>
       </section>

@@ -4,7 +4,6 @@ import json
 import os
 import re
 import sqlite3
-import tempfile
 import threading
 import uuid
 from contextlib import contextmanager
@@ -34,9 +33,9 @@ def escribir_atomico(ruta, contenido):
 class AuditoriaCompartida(Auditoria):
     def __init__(self, fuentes, carpeta, cache=None):
         self.compartida = Path(carpeta).resolve()
-        llave = hashlib.sha256(str(self.compartida).encode()).hexdigest()[:24]
-        # La caché queda fuera de OneDrive: cada equipo escribe únicamente su SQLite.
-        local = Path(cache) if cache is not None else Path(tempfile.gettempdir()) / 'panel-codelco-auditoria' / llave
+        # La BD permanece en el proyecto. Coordinar una sola escritura a la vez.
+        # Los eventos existentes permiten reconstruirla sin perder el historial.
+        local = Path(cache) if cache is not None else self.compartida / 'BD'
         super().__init__(fuentes, local)
         self.eventos = self.compartida / 'Compartido' / 'eventos'
         self.archivos = self.compartida / 'Compartido' / 'archivos'
@@ -52,6 +51,7 @@ class AuditoriaCompartida(Auditoria):
                 CREATE TABLE IF NOT EXISTS cambios_aplicados (id TEXT PRIMARY KEY);
                 CREATE TABLE IF NOT EXISTS versiones_tickets (muestra TEXT, fila INTEGER, version TEXT,
                     PRIMARY KEY (muestra, fila));
+                CREATE TABLE IF NOT EXISTS muestras_eliminadas (id TEXT PRIMARY KEY);
             ''')
             self.eventos.mkdir(parents=True, exist_ok=True)
             self.archivos.mkdir(parents=True, exist_ok=True)
@@ -97,6 +97,13 @@ class AuditoriaCompartida(Auditoria):
             evento['muestra'] = {k: limpio[k] for k in ('id', 'actualizado')}
         escribir_atomico(self.eventos / (evento['id'] + '.json'), serializar(evento))
         # Aplicar por la misma vía que en los demás equipos.
+        self.aplicar(db, evento)
+
+    def publicar_eliminacion(self, db, identificador):
+        evento = {'tipo': 'eliminar_muestra', 'muestra': {'id': identificador},
+                  'creado': datetime.now(timezone.utc).isoformat(timespec='microseconds'),
+                  'id': uuid.uuid4().hex, 'version': 1}
+        escribir_atomico(self.eventos / (evento['id'] + '.json'), serializar(evento))
         self.aplicar(db, evento)
 
     def migrar_anteriores(self, db):
@@ -147,11 +154,21 @@ class AuditoriaCompartida(Auditoria):
         return documentos
 
     def aplicar(self, db, evento):
-        if evento.get('version') != 1 or evento.get('tipo') not in ('fuente', 'muestra', 'ticket'):
+        if evento.get('version') != 1 or evento.get('tipo') not in ('fuente', 'muestra', 'ticket', 'eliminar_muestra'):
             raise ValueError('Formato de cambio compartido inválido.')
         if db.execute('SELECT 1 FROM cambios_aplicados WHERE id=?', (evento['id'],)).fetchone():
             return True
-        if evento['tipo'] == 'fuente':
+        if evento['tipo'] == 'eliminar_muestra':
+            identificador = evento['muestra']['id']
+            db.execute('INSERT OR IGNORE INTO muestras_eliminadas VALUES (?)', (identificador,))
+            db.execute('DELETE FROM documentos WHERE muestra=?', (identificador,))
+            db.execute('DELETE FROM muestras WHERE id=?', (identificador,))
+            db.execute('DELETE FROM versiones_tickets WHERE muestra=?', (identificador,))
+        elif evento['tipo'] != 'fuente' and db.execute(
+                'SELECT 1 FROM muestras_eliminadas WHERE id=?', (evento['muestra']['id'],)).fetchone():
+            # Ni una copia antigua ni un check tardío pueden restaurar la muestra.
+            pass
+        elif evento['tipo'] == 'fuente':
             contenido = self.leer_documentos({'documentos': [{'sha256': evento['sha256']}]})
             if contenido is None:
                 return False
@@ -216,7 +233,7 @@ class AuditoriaCompartida(Auditoria):
                 continue
             try:
                 evento = json.loads(ruta.read_text(encoding='utf-8'))
-                if (not isinstance(evento, dict) or evento.get('tipo') not in ('fuente', 'muestra', 'ticket')
+                if (not isinstance(evento, dict) or evento.get('tipo') not in ('fuente', 'muestra', 'ticket', 'eliminar_muestra')
                         or not isinstance(evento.get('creado'), str)):
                     raise ValueError('Formato compartido inválido.')
                 if evento['id'] != ruta.stem:
@@ -225,7 +242,7 @@ class AuditoriaCompartida(Auditoria):
             except (ValueError, KeyError, OSError, TypeError):
                 # Un archivo aún no descargado o incompleto se vuelve a intentar.
                 self._pendientes += 1
-        for evento in sorted(nuevos, key=lambda e: (e['tipo'] == 'ticket', e.get('creado', ''), e['id'])):
+        for evento in sorted(nuevos, key=lambda e: (0 if e['tipo'] == 'eliminar_muestra' else 2 if e['tipo'] == 'ticket' else 1, e.get('creado', ''), e['id'])):
             db.execute('SAVEPOINT importar_cambio')
             try:
                 if not self.aplicar(db, evento):

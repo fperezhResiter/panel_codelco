@@ -32,8 +32,8 @@ def grafico_estados(tickets):
     mayor = max(conteos.values(), default=1)
     for i, estado in enumerate(ESTADOS):
         y = 98 - i * 30
-        dibujo.add(String(5, y + 2, ESTADOS[estado], fontSize=8, fillColor=GRAY))
-        dibujo.add(Rect(151, y, 170 * conteos[estado] / mayor, 12,
+        dibujo.add(String(5, y + 15, ESTADOS[estado], fontSize=7.5, fillColor=GRAY))
+        dibujo.add(Rect(5, y, 315 * conteos[estado] / mayor, 8,
                        fillColor=COLORES[estado], strokeColor=None))
         dibujo.add(String(335, y + 2, str(conteos[estado]), fontSize=8, fillColor=NAVY))
     return dibujo
@@ -91,8 +91,8 @@ def crear_pdf_densidades(datos):
                 Spacer(1, 8)]
     conteos = Counter(t['estado'] for t in tickets)
     kpis = Table([[par(f'{titulo}: {valor}', 10, NAVY, True) for titulo, valor in
-                   [('Tickets', len(tickets)), ('Coinciden', conteos['coincide']),
-                    ('Volumen menor', conteos['no_coincide_menor']), ('Volumen mayor', conteos['no_coincide_mayor']),
+                   [('Tickets', len(tickets)), (ESTADOS['coincide'], conteos['coincide']),
+                    (ESTADOS['no_coincide_menor'], conteos['no_coincide_menor']), (ESTADOS['no_coincide_mayor'], conteos['no_coincide_mayor']),
                     ('Sin evaluar', conteos['sin_evaluar'])]]], colWidths=[ANCHO / 5] * 5)
     kpis.setStyle(TableStyle([('BACKGROUND', (0, 0), (-1, -1), PALE), ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
                              ('TOPPADDING', (0, 0), (-1, -1), 10)]))
@@ -105,21 +105,24 @@ def crear_pdf_densidades(datos):
         historia.append(par('Estimación de residuo y densidad: ' + criterio, 7, GRAY))
     historia += [Spacer(1, 8), *titulo_seccion('Detalle de tickets')]
     encabezado = ['Unidad / período / EDP / fila', 'Ticket / fecha', 'Residuo / producto', 'Peso kg', 'Dens. media kg/m³',
-                  'Volumen m³', 'Capacidad m³', 'Delta m³', 'Resultado / motivo']
+                  'Volumen m³', 'Capacidad m³', 'Delta m³', 'Resultado / motivo', 'Comentario']
     filas = [[par(c, 7, colors.white, True) for c in encabezado]]
     for t in tickets:
         textos = [f"{t['unidad']} / {t['periodo']} / EDP {t['edp']} / fila {t['fila']}",
                   f"{t['ticket'] or '(sin ID)'} / {t['fecha'] or '(sin fecha)'}", t['residuo'],
                   numero(t['peso_kg']), numero(t['densidad_kg_m3']), numero(t['volumen_m3'], 3),
-                  numero(t['volumen_tipo'], 0), numero(t['diferencia_m3'], 3), t['motivo']]
+                  numero(t['volumen_tipo'], 0), numero(t['diferencia_m3'], 3), ESTADOS[t['estado']] + '. ' + t['motivo'],
+                  t.get('comentario') or 'Sin comentario']
         fila = [par(v, 7, COLORES[t['estado']] if i == 8 else NAVY) for i, v in enumerate(textos)]
         if t.get('residuo_original') != t['residuo']:
             fila[2] = [fila[2], par('Original: ' + str(t.get('residuo_original') or '(vacío)'), 6, GRAY)]
         if t.get('residuo_es_estimado'):
             fila[2].append(par('Tipo estimado', 6, AMBER, True))
             fila[4] = [fila[4], par('Según material estimado', 6, GRAY)]
+        if t.get('comentario_autor'):
+            fila[9] = [fila[9], par(t['comentario_autor'] + ' / ' + t['comentario_actualizado'], 6, GRAY)]
         filas.append(fila)
-    tabla = LongTable(filas, colWidths=[95, 85, 100, 65, 65, 65, 55, 55, ANCHO - 585], repeatRows=1)
+    tabla = LongTable(filas, colWidths=[80, 65, 80, 45, 50, 50, 45, 45, 120, ANCHO - 580], repeatRows=1)
     tabla.setStyle(TableStyle([('BACKGROUND', (0, 0), (-1, 0), NAVY), ('VALIGN', (0, 0), (-1, -1), 'TOP'),
                               ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, PALE]),
                               ('LINEBELOW', (0, 0), (-1, -1), .4, LINE),

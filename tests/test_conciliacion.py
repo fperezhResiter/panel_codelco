@@ -17,6 +17,7 @@ from app.reportes import comparar, leer_imputacion, leer_tickets, metadatos, cre
 from app.andina import leer_avance_andina
 from app.base_datos import actualizar_base_datos, leer_reporte
 from app.servidor import ServidorPanel, crear_handler
+from soporte_usuarios import crear_handler_administrador as crear_handler
 
 
 def fuente():

@@ -11,9 +11,11 @@ BASE = Path(__file__).resolve().parent.parent
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--fuentes', type=Path, default=BASE / 'Fuentes',
-                        help='Carpeta con unidades, períodos y archivos EDP.')
+                        help='Carpeta Fuentes organizada por unidad, año y EDP mensual.')
     parser.add_argument('--bd', type=Path, default=BASE / 'Datos' / 'conciliacion.sqlite3',
                         help='Archivo SQLite que usará el panel.')
+    parser.add_argument('--auditorias', type=Path, default=BASE / 'Datos' / 'Auditoria',
+                        help='Carpeta de revisiones que se incluirán en la publicación.')
     args = parser.parse_args()
     inicio = perf_counter()
     print(f'Actualizando la base de datos desde: {args.fuentes.resolve()}', flush=True)
@@ -45,7 +47,15 @@ def main():
                 print(f'  - {error}', flush=True)
             if len(errores) > 5:
                 print(f'  - Hay {len(errores) - 5} errores adicionales; consulta el detalle en el panel.', flush=True)
-    print(f'Tiempo: {segundos:.1f} segundos.', flush=True)
+    from .publicacion import publicar
+    print('Generando publicación de consulta sin servidor…', flush=True)
+    try:
+        publicacion = publicar(args.fuentes, args.bd, auditorias=args.auditorias)
+    except Exception as error:
+        print(f'ERROR: La BD se actualizó, pero no se pudo publicar: {error}. Se conserva la publicación anterior.', flush=True)
+        raise SystemExit(1) from error
+    print(f"Publicación lista: {publicacion['actualizado']}. Abre Panel.html con doble clic.", flush=True)
+    print(f'Tiempo: {perf_counter() - inicio:.1f} segundos.', flush=True)
 
 
 if __name__ == '__main__':

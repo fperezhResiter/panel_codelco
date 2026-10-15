@@ -13,9 +13,10 @@ from urllib.error import HTTPError
 
 from openpyxl import Workbook, load_workbook
 from app.base_datos import actualizar_base_datos
-from app.densidades import importar_maestra, evaluar_ticket, leer_densidades, clave_material
+from app.densidades import importar_maestra, evaluar_ticket, leer_densidades, clave_material, filtrar_reporte
 from app.densidades_pdf import crear_pdf_densidades
 from app.servidor import ServidorPanel, crear_handler
+from soporte_usuarios import crear_handler_administrador as crear_handler
 from app.residuos import estandarizar_residuo
 from app.estimaciones import estimar_residuos_faltantes
 try:
@@ -370,6 +371,30 @@ class DensidadesTests(unittest.TestCase):
         self.assertTrue(crear_pdf_densidades(datos).startswith(b'%PDF-'))
         with self.assertRaisesRegex(ValueError, 'No hay tickets'):
             crear_pdf_densidades(leer_densidades(ruta, {'edp': ['999']}))
+
+    def test_trimestres_periodo_edp_tickets_avisos_y_descargas(self):
+        datos = leer_densidades(self.crear_bd())
+        ticket = datos['tickets'][0]
+        datos['tickets'] = [{**ticket, 'mes': mes, 'periodo': f'2026-{mes:02d}'} for mes in range(1, 13)]
+        datos['avisos_edp'] = [{'anio': 2026, 'mes': mes, 'edp': 47, 'mensaje': f'Aviso {mes}'}
+                              for mes in range(1, 13)]
+        from app.compilados import compilar_densidades
+        from zipfile import ZipFile
+        for trimestre, meses in enumerate(((1, 2, 3), (4, 5, 6), (7, 8, 9), (10, 11, 12)), 1):
+            with self.subTest(trimestre=trimestre):
+                seleccion = filtrar_reporte(datos, {'trimestre': [str(trimestre)], 'anio': ['2026']})
+                self.assertEqual([t['mes'] for t in seleccion['tickets']], list(meses))
+                self.assertEqual([a for a in seleccion['avisos'] if a.startswith('Aviso ')],
+                                 [f'Aviso {mes}' for mes in meses])
+                self.assertTrue(crear_pdf_densidades(seleccion).startswith(b'%PDF-'))
+                with ZipFile(BytesIO(compilar_densidades(seleccion))) as compilado:
+                    self.assertEqual(len(compilado.namelist()), 3)
+        self.assertEqual(len(filtrar_reporte(datos, {'trimestre': '2', 'mes': '5'})['tickets']), 1)
+        self.assertEqual(filtrar_reporte(datos, {'trimestre': '2', 'mes': '7'})['tickets'], [])
+        self.assertEqual(filtrar_reporte(datos, {'trimestre': '2', 'anio': '2025'})['tickets'], [])
+        for valor in ('0', '5', 'abc'):
+            with self.assertRaisesRegex(ValueError, 'trimestre'):
+                filtrar_reporte(datos, {'trimestre': valor})
 
     def test_bd_anterior_pide_actualizacion(self):
         ruta = self.crear_bd()

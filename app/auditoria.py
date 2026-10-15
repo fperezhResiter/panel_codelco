@@ -16,7 +16,7 @@ from zipfile import BadZipFile, ZipFile
 
 from openpyxl.utils.cell import get_column_letter
 from .excel import FuenteExcel, clave
-from .reportes import MESES, UNIDADES, PATRON_RESIDUOS, limites_tickets, metadatos, fila_plantilla_ticket
+from .reportes import MESES, UNIDADES, PATRON_RESIDUOS, limites_tickets, metadatos, fila_plantilla_ticket, ruta_fuente_canonica
 
 MAX_ARCHIVO = 30 * 1024 * 1024
 MAX_SOLICITUD = ((MAX_ARCHIVO + 2) // 3) * 4 + 65536
@@ -37,6 +37,21 @@ def texto(valor):
 
 def nombre_respaldo_edp(unidad):
     return '1.1 Retiro RINSP.pdf' if unidad == 'Andina' else '2.5a TICKET INTERNO.pdf'
+
+
+def nombre_respaldo_ticket(muestra, ticket):
+    numero = str(ticket.get('ticket') or '').strip()
+    return f'{numero}_EDP{muestra["edp"]}.pdf' if re.fullmatch(r'[0-9]+', numero) else None
+
+
+
+def nombre_corresponde_ticket(nombre, muestra, ticket):
+    esperado = nombre_respaldo_ticket(muestra, ticket)
+    ruta = Path(nombre)
+    partes = re.fullmatch(r'([0-9]+)[ _-]*EDP[ _-]*([0-9]+)', ruta.stem, re.IGNORECASE)
+    return bool(esperado and ruta.suffix and ruta.suffix != '.' and partes
+                and partes[1] == str(ticket.get('ticket') or '').strip()
+                and partes[2] == str(muestra['edp']))
 
 
 def orden_revision(muestra):
@@ -139,9 +154,9 @@ def leer_excel(contenido, unidad=None):
 
 def decodificar(datos, extensiones):
     nombre = datos.get('nombre', '')
-    if not isinstance(nombre, str) or not nombre.strip() or len(nombre) > 240 or '/' in nombre or '\\' in nombre or any(ord(c) < 32 for c in nombre):
+    if not isinstance(nombre, str) or not nombre.strip() or len(nombre) > 240 or any(c in nombre for c in '/\\:*?"<>|') or nombre.endswith((' ', '.')) or any(ord(c) < 32 for c in nombre):
         raise ValueError('Nombre de archivo inválido.')
-    if Path(nombre).suffix.lower() not in extensiones:
+    if extensiones is not None and Path(nombre).suffix.lower() not in extensiones:
         raise ValueError('Formato de archivo no admitido.')
     try:
         contenido = base64.b64decode(datos.get('contenido', ''), validate=True)
@@ -183,7 +198,7 @@ class Auditoria:
                 relativa = ruta.relative_to(self.fuentes).as_posix()
                 try:
                     datos = metadatos(ruta, self.fuentes)
-                    fuentes.append({**datos, 'id': 'local-' + hashlib.sha256(relativa.encode()).hexdigest(),
+                    fuentes.append({**datos, 'id': 'local-' + hashlib.sha256(ruta_fuente_canonica(relativa).encode()).hexdigest(),
                                     'archivo': relativa, 'nombre': ruta.name, 'origen': 'Fuentes'})
                 except ValueError as exc:
                     avisos.append(f'{relativa}: {exc}')
@@ -243,17 +258,141 @@ class Auditoria:
                 'SELECT id,nombre,creado,length(contenido) AS bytes FROM documentos WHERE muestra=? AND fila=? ORDER BY rowid',
                 (identificador, ticket['fila']))]
         muestra['respaldo_edp'] = self.respaldo_edp(muestra, db)
+        for ticket in muestra['tickets']:
+            ticket['respaldo_esperado'] = nombre_respaldo_ticket(muestra, ticket)
+            ticket['respaldo_ticket'] = self.respaldo_ticket(muestra, ticket, db)
         return muestra
 
+    def carpeta_edp(self, muestra):
+        if muestra.get('origen') != 'Fuentes':
+            raise ValueError('El respaldo debe estar en la carpeta Fuentes del EDP correspondiente.')
+        carpeta = (self.fuentes / muestra['archivo']).resolve().parent
+        if not carpeta.is_relative_to(self.fuentes.resolve()):
+            raise ValueError('Ruta de fuente inválida.')
+        if carpeta.is_dir():
+            return carpeta
+        partes = Path(muestra['archivo']).parts
+        if len(partes) >= 3 and partes[1] != str(muestra['anio']):
+            trasladado = (self.fuentes / partes[0] / str(muestra['anio']) / Path(*partes[1:])).resolve()
+            if trasladado.is_relative_to(self.fuentes.resolve()) and trasladado.is_file():
+                datos = metadatos(trasladado, self.fuentes)
+                if all(str(datos[k]) == str(muestra[k]) for k in ('unidad', 'anio', 'mes', 'edp')):
+                    return trasladado.parent
+        # Las revisiones conservan su ruta original; localizar el mismo EDP tras moverlo.
+        candidatas = []
+        for ruta in self.fuentes.rglob(Path(muestra['archivo']).name):
+            if not ruta.is_file() or not ruta.resolve().is_relative_to(self.fuentes.resolve()):
+                continue
+            try:
+                datos = metadatos(ruta, self.fuentes)
+            except ValueError:
+                continue
+            if all(str(datos[k]) == str(muestra[k]) for k in ('unidad', 'anio', 'mes', 'edp')):
+                candidatas.append(ruta.resolve().parent)
+        if len(set(candidatas)) != 1:
+            raise ValueError('No se encuentra una única carpeta Fuentes para el EDP de esta revisión.')
+        return candidatas[0]
+
+    def respaldo_ticket(self, muestra, ticket, db):
+        individual = self.respaldo_individual_en_fuentes(muestra, ticket)
+        if individual:
+            return individual
+        if ticket['comprobado']:
+            guardado = next((d for d in ticket['documentos'] if d['id'] == ticket.get('respaldo_autorizado')), None)
+            if guardado:
+                return {**guardado, 'guardado': True, 'historico': False}
+            # No revocar comprobaciones anteriores por el cambio de formato.
+            anterior = next(iter(ticket['documentos']), None) or muestra.get('respaldo_edp')
+            return {**anterior, 'guardado': bool(anterior.get('id')) or anterior.get('guardado', False), 'historico': True} if anterior else None
+        return None
+
+    def respaldos_individuales_en_fuentes(self, muestra, ticket):
+        nombre = nombre_respaldo_ticket(muestra, ticket)
+        if not nombre:
+            return []
+        encontrados = []
+        try:
+            carpeta = self.carpeta_edp(muestra)
+            for candidato in sorted(carpeta.iterdir(), key=lambda p: (p.suffix.lower() != '.pdf', p.name != nombre, p.name)):
+                if not nombre_corresponde_ticket(candidato.name, muestra, ticket):
+                    continue
+                ruta = candidato.resolve()
+                if not ruta.is_relative_to(carpeta) or not ruta.is_file() or not 0 < ruta.stat().st_size <= MAX_ARCHIVO:
+                    continue
+                if ruta.suffix.lower() == '.pdf':
+                    with ruta.open('rb') as archivo:
+                        if archivo.read(5) != b'%PDF-':
+                            continue
+                encontrados.append({'nombre': candidato.name, 'archivo': ruta.relative_to(self.fuentes.resolve()).as_posix(),
+                                    'bytes': ruta.stat().st_size, 'guardado': False, 'historico': False})
+        except (ValueError, OSError):
+            pass
+        return encontrados
+
+    def respaldo_individual_en_fuentes(self, muestra, ticket):
+        return next(iter(self.respaldos_individuales_en_fuentes(muestra, ticket)), None)
+
+    def leer_respaldo_ticket(self, muestra, ticket, db):
+        respaldo = self.respaldo_ticket(muestra, ticket, db)
+        if not respaldo:
+            esperado = nombre_respaldo_ticket(muestra, ticket)
+            raise ValueError(f'Falta el respaldo {esperado or "con número de ticket válido"} en la carpeta Fuentes de este EDP.')
+        if respaldo.get('guardado'):
+            return respaldo['nombre'], db.execute('SELECT contenido FROM documentos WHERE id=?', (respaldo['id'],)).fetchone()[0]
+        ruta = (self.fuentes / respaldo['archivo']).resolve()
+        if not ruta.is_relative_to(self.carpeta_edp(muestra)):
+            raise ValueError('El respaldo debe pertenecer a la carpeta del EDP.')
+        contenido = ruta.read_bytes()
+        if not 0 < len(contenido) <= MAX_ARCHIVO or (ruta.suffix.lower() == '.pdf' and not contenido.startswith(b'%PDF-')):
+            raise ValueError('El respaldo debe contener datos y pesar como máximo 30 MB; los PDF deben ser válidos.')
+        return respaldo['nombre'], contenido
+
+    def documento_ticket(self, identificador, fila):
+        with self.conexion() as db:
+            muestra = self.obtener(identificador, db)
+            ticket = next((t for t in muestra['tickets'] if t['fila'] == fila), None)
+            if not ticket:
+                raise ValueError('El ticket no pertenece a esta muestra.')
+            return self.leer_respaldo_ticket(muestra, ticket, db)
+
+    def archivos_respaldo(self, reporte):
+        from .auditoria_pdf import tickets_completados
+        emitidos = set()
+        faltantes = []
+        archivos = []
+        with self.conexion() as db:
+            for muestra, ticket in tickets_completados(reporte['muestras']):
+                respaldo = ticket.get('respaldo_ticket')
+                if not respaldo:
+                    faltantes.append(f'Ticket {ticket["ticket"]}, EDP {muestra["edp"]}: respaldo histórico no disponible.')
+                    continue
+                documentos = [self.leer_respaldo_ticket(muestra, ticket, db)]
+                for individual in self.respaldos_individuales_en_fuentes(muestra, ticket):
+                    if individual['nombre'] != documentos[0][0]:
+                        documentos.append((individual['nombre'], (self.fuentes / individual['archivo']).read_bytes()))
+                for nombre, contenido in documentos:
+                    llave = (nombre, hashlib.sha256(contenido).hexdigest())
+                    if llave in emitidos:
+                        continue
+                    emitidos.add(llave)
+                    nombre = Path(nombre).name.replace('\\', '_')
+                    archivos.append((f'respaldos/{muestra["id"]}/{nombre}', contenido))
+        if faltantes:
+            archivos.append(('respaldos-no-disponibles.txt', '\n'.join(faltantes).encode('utf-8')))
+        return archivos
+
     def respaldo_edp(self, muestra, db):
-        """Un PDF común del mismo EDP habilita la comprobación, nunca la marca."""
+        """Localizar el PDF común solo para conservar respaldos históricos."""
         guardado = db.execute('SELECT id,nombre,creado,length(contenido) AS bytes FROM documentos '
                               'WHERE muestra=? AND fila=0 ORDER BY rowid LIMIT 1', (muestra['id'],)).fetchone()
         if guardado:
             return {**dict(guardado), 'guardado': True}
         if muestra.get('origen') != 'Fuentes':
             return None
-        carpeta = (self.fuentes / muestra['archivo']).resolve().parent
+        try:
+            carpeta = self.carpeta_edp(muestra)
+        except ValueError:
+            return None
         raiz = self.fuentes.resolve()
         if not carpeta.is_relative_to(raiz) or not carpeta.is_dir():
             return None
@@ -280,7 +419,7 @@ class Auditoria:
             fila = db.execute('SELECT contenido FROM documentos WHERE id=?', (respaldo['id'],)).fetchone()
             return respaldo['nombre'], fila[0]
         ruta = (self.fuentes / respaldo['archivo']).resolve()
-        carpeta = (self.fuentes / muestra['archivo']).resolve().parent
+        carpeta = self.carpeta_edp(muestra)
         if not ruta.is_relative_to(carpeta) or not ruta.is_relative_to(self.fuentes.resolve()):
             raise ValueError('El respaldo debe pertenecer a la carpeta del EDP.')
         contenido = ruta.read_bytes()
@@ -302,6 +441,21 @@ class Auditoria:
     def estado_conexion(self):
         return {'modo': 'local', 'conectada': True, 'carpeta': str(self.carpeta),
                 'mensaje': 'BD local conectada', 'pendientes': 0}
+
+    def publicar_eliminacion(self, db, identificador):
+        """Punto de extensión para sincronizar la eliminación de una revisión."""
+
+    def eliminar(self, datos):
+        identificador = datos.get('muestra')
+        if not isinstance(identificador, str) or not identificador:
+            raise ValueError('Selecciona una muestra guardada para eliminar.')
+        with self.conexion() as db:
+            db.execute('BEGIN IMMEDIATE')
+            self.obtener(identificador, db)
+            db.execute('DELETE FROM documentos WHERE muestra=?', (identificador,))
+            db.execute('DELETE FROM muestras WHERE id=?', (identificador,))
+            self.publicar_eliminacion(db, identificador)
+        return {'eliminada': identificador}
 
     def leer_fuente(self, identificador):
         fuente = next((f for f in self.catalogo()['fuentes'] if f['id'] == identificador), None)
@@ -326,18 +480,26 @@ class Auditoria:
                              'fecha': next((c['valor'] for c in t['campos'] if clave(c['nombre']) == 'FECHA'), '')}
                             for t in libro['tickets']]}
 
-    def seleccionar(self, datos):
-        if type(datos.get('fila')) is not int:
-            raise ValueError('Selecciona un ticket de la lista.')
+    def seleccionar(self, datos, guardar=True):
+        filas = datos.get('filas')
+        if 'filas' in datos:
+            if (not isinstance(filas, list) or not 3 <= len(filas) <= 5 or
+                    any(type(fila) is not int for fila in filas) or len(set(filas)) != len(filas)):
+                raise ValueError('Selecciona entre 3 y 5 tickets distintos de la lista.')
+        else:
+            # Compatibilidad con la selección individual de versiones anteriores.
+            if type(datos.get('fila')) is not int:
+                raise ValueError('Selecciona un ticket de la lista.')
+            filas = [datos['fila']]
         fuente, libro = self.leer_fuente(datos.get('fuente'))
         if datos.get('sha256') != libro['sha256']:
             raise ValueError('El Excel cambió desde que se listaron los tickets. Vuelve a cargar la lista.')
-        ticket = next((t for t in libro['tickets'] if t['fila'] == datos['fila']), None)
-        if ticket is None:
+        por_fila = {t['fila']: t for t in libro['tickets']}
+        if any(fila not in por_fila for fila in filas):
             raise ValueError('El ticket seleccionado no pertenece a este EDP.')
-        return self.crear_muestra(fuente, libro, [ticket], 'manual')
+        return self.crear_muestra(fuente, libro, [por_fila[fila] for fila in filas], 'manual', guardar)
 
-    def sortear(self, datos):
+    def sortear(self, datos, guardar=True):
         cantidad = datos.get('cantidad')
         if type(cantidad) is not int or cantidad not in (3, 4, 5):
             raise ValueError('Elige una muestra de 3, 4 o 5 tickets.')
@@ -345,9 +507,9 @@ class Auditoria:
         if len(libro['tickets']) < cantidad:
             raise ValueError(f'Este EDP tiene {len(libro["tickets"])} registros; no alcanza para sortear {cantidad} sin repetir filas.')
         tickets = secrets.SystemRandom().sample(libro['tickets'], cantidad)
-        return self.crear_muestra(fuente, libro, tickets, 'aleatoria')
+        return self.crear_muestra(fuente, libro, tickets, 'aleatoria', guardar)
 
-    def crear_muestra(self, fuente, libro, tickets, modo):
+    def crear_muestra(self, fuente, libro, tickets, modo, guardar=True):
         for t in tickets:
             t.update(comprobado=False, comprobado_en=None, documentos=[])
         muestra = {**fuente, 'id': uuid.uuid4().hex, 'fuente': fuente['id'],
@@ -355,6 +517,10 @@ class Auditoria:
                    'hoja': libro['hoja'], 'item': libro['item'], 'sha256': libro['sha256'], 'poblacion': len(libro['tickets']),
                    'avisos': libro['avisos'], 'tickets': tickets, 'modo': modo}
         with self.conexion() as db:
+            if not guardar:
+                muestra['respaldo_edp'] = self.respaldo_edp(muestra, db)
+                muestra['preview'] = True
+                return muestra
             db.execute('INSERT INTO muestras VALUES (?,?,?)', (muestra['id'], fuente['id'], json.dumps(muestra, ensure_ascii=False)))
             self.publicar_cambio(db, self.obtener(muestra['id'], db))
         return self.obtener(muestra['id'])
@@ -364,7 +530,7 @@ class Auditoria:
         fila = datos.get('fila')
         if type(fila) is not int:
             raise ValueError('Fila de ticket inválida.')
-        archivo = decodificar(datos, EXT_DOCUMENTOS) if accion == 'adjuntar' else None
+        archivo = decodificar(datos, None) if accion == 'adjuntar' else None
         with self.conexion() as db:
             # Serializar cambios concurrentes para no perder casillas ni respaldos.
             db.execute('BEGIN IMMEDIATE')
@@ -375,19 +541,38 @@ class Auditoria:
             if accion == 'comprobar':
                 if type(datos.get('comprobado')) is not bool:
                     raise ValueError('La comprobación debe ser una casilla válida.')
-                if datos['comprobado'] and not ticket['documentos']:
-                    if not muestra['respaldo_edp']:
-                        nombre = nombre_respaldo_edp(muestra['unidad'])
-                        raise ValueError(f'Adjunta un documento o coloca {nombre} en la carpeta del EDP antes de confirmar la revisión manual.')
-                    # Conservar una sola copia por muestra del PDF que respalda la revisión.
-                    if not muestra['respaldo_edp']['guardado']:
-                        nombre, contenido = self.leer_respaldo_edp(muestra, db)
+                if datos['comprobado'] and not ticket['comprobado']:
+                    nombre, contenido = self.leer_respaldo_ticket(muestra, ticket, db)
+                    existente = db.execute('SELECT id FROM documentos WHERE muestra=? AND fila=? AND nombre=? AND contenido=? LIMIT 1',
+                                           (identificador, fila, nombre, contenido)).fetchone()
+                    documento = existente['id'] if existente else uuid.uuid4().hex
+                    if not existente:
                         db.execute('INSERT INTO documentos VALUES (?,?,?,?,?,?)',
-                                   (uuid.uuid4().hex, identificador, 0, nombre, ahora(), contenido))
+                                   (documento, identificador, fila, nombre, ahora(), contenido))
+                    ticket['respaldo_autorizado'] = documento
+                if datos['comprobado'] and ticket['comprobado']:
+                    return muestra
                 ticket['comprobado'] = datos['comprobado']
                 ticket['comprobado_en'] = ahora() if ticket['comprobado'] else None
             elif accion == 'adjuntar':
                 nombre, contenido = archivo
+                esperado = nombre_respaldo_ticket(muestra, ticket)
+                if not nombre_corresponde_ticket(nombre, muestra, ticket):
+                    raise ValueError(f'Sube un archivo cuyo nombre base sea exactamente {Path(esperado).stem if esperado else "NumeroTicket_EDPNumeroEDP"} o la variante NumeroTicket EDP NumeroEDP, con o sin guion, y la extensión de su formato.')
+                if Path(nombre).suffix.lower() == '.pdf' and not contenido.startswith(b'%PDF-'):
+                    raise ValueError('El archivo PDF debe ser válido.')
+                if ticket['comprobado']:
+                    raise ValueError('Desmarca la comprobación antes de cambiar el respaldo de este ticket.')
+                carpeta = self.carpeta_edp(muestra)
+                ruta = (carpeta / nombre).resolve()
+                if not ruta.is_relative_to(carpeta):
+                    raise ValueError('Ruta de respaldo inválida.')
+                if ruta.exists():
+                    if ruta.read_bytes() != contenido:
+                        raise ValueError('Ya existe un respaldo con este nombre y contenido diferente en Fuentes. No se ha reemplazado.')
+                else:
+                    with ruta.open('xb') as destino:
+                        destino.write(contenido)
                 db.execute('INSERT INTO documentos VALUES (?,?,?,?,?,?)',
                            (uuid.uuid4().hex, identificador, fila, nombre, ahora(), contenido))
                 ticket.update(comprobado=False, comprobado_en=None)
@@ -430,6 +615,6 @@ def crear_csv(muestra):
             len(muestra['tickets']), muestra['sha256'], t['fila'], t['ticket'], *valores,
             'Comprobado manualmente' if t['comprobado'] else 'Pendiente de comprobación', t['comprobado_en'],
             ' | '.join(d['nombre'] for d in t['documentos']), ' | '.join(muestra['avisos']),
-            muestra.get('modo', 'aleatoria'), (muestra.get('respaldo_edp') or {}).get('nombre', ''),
+            muestra.get('modo', 'aleatoria'), (t.get('respaldo_ticket') or muestra.get('respaldo_edp') or {}).get('nombre', ''),
             muestra.get('item') or ('1.1' if clave(muestra['hoja']) == '11' else '2.5.a')]])
     return ('\ufeff' + salida.getvalue()).encode('utf-8')

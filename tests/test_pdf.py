@@ -10,6 +10,7 @@ from urllib.error import HTTPError
 from unittest.mock import patch
 from app.pdf import crear_pdf
 from app.servidor import ServidorPanel, crear_handler
+from soporte_usuarios import crear_handler_administrador as crear_handler
 try:
     from pypdf import PdfReader
 except ImportError:

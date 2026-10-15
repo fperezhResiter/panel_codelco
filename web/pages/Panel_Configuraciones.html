@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Configuraciones — Reporte Codelco</title>
+  <link rel="stylesheet" href="/web/css/panel.css">
+  <script src="/web/js/sesion.js" defer></script>
+  <script src="/web/js/paneles.js" defer></script>
+  <script src="/web/js/configuraciones.js" defer></script>
+<!-- INICIO CONTROLES UNIVERSALES -->
+<link rel="stylesheet" href="../css/controles-comunes.css">
+<script src="../js/controles-comunes.js" data-menu="../../../../Panel Universal.html"></script>
+<!-- FIN CONTROLES UNIVERSALES -->
+</head>
+<body>
+  <header><img class="logo" src="/web/img/logo_sin_fondo_resiter.png" alt="Resiter"><h1>Reporte Codelco</h1><a class="volver-inicio" href="/Panel.html">← Volver al inicio</a></header>
+  <nav class="navegacion-paneles" data-navegacion-configuraciones aria-label="Vistas del reporte"></nav>
+  <main class="configuraciones">
+    <div class="intro"><div><p class="eyebrow">PANEL <span data-numero-configuraciones></span> · ADMINISTRACIÓN</p><h2>Configuraciones</h2><p>Agrega usuarios y administra sus roles y contraseñas.</p></div></div>
+    <p id="estado-configuracion" role="status" aria-live="polite">Cargando usuarios…</p>
+    <div class="configuracion-columnas">
+      <section class="tarjeta contenido">
+        <h3>Agregar usuario</h3>
+        <form id="crear-usuario">
+          <label>Correo<input name="correo" type="email" autocomplete="off" required maxlength="254" placeholder="usuario@resiter.cl"></label>
+          <label>Rol<select name="rol"><option value="general">General</option><option value="auditor">Auditor</option><option value="administrador">Admin</option></select></label>
+          <p id="descripcion-rol" class="nota-guardado">Puede consultar datos, filtrar y descargar reportes.</p>
+          <label>Contraseña<input name="password" type="password" autocomplete="new-password" required minlength="10" maxlength="256"></label>
+          <label>Confirmar contraseña<input name="confirmacion" type="password" autocomplete="new-password" required minlength="10" maxlength="256"></label>
+          <button class="primario" type="submit" disabled>Crear usuario</button>
+        </form>
+      </section>
+      <section class="tarjeta">
+        <div class="titulo"><div><h3>Usuarios del panel</h3><p id="total-usuarios"></p></div></div>
+        <div class="scroll"><table><thead><tr><th>Correo</th><th>Rol</th><th>Acciones</th></tr></thead><tbody id="usuarios-configuracion"></tbody></table></div>
+        <section id="edicion-usuario" class="contenido" hidden aria-labelledby="titulo-edicion">
+          <h3 id="titulo-edicion">Editar usuario</h3>
+          <form id="editar-usuario">
+            <label>Correo<input name="correo" type="email" readonly autocomplete="off"></label>
+            <label>Rol<select name="rol"><option value="general">General</option><option value="auditor">Auditor</option><option value="administrador">Admin</option></select></label>
+            <label>Nueva contraseña (opcional)<input name="password" type="password" autocomplete="new-password" minlength="10" maxlength="256"></label>
+            <label>Confirmar nueva contraseña<input name="confirmacion" type="password" autocomplete="new-password" minlength="10" maxlength="256"></label>
+            <p class="nota-guardado">Deja la contraseña vacía para conservar la actual. Al cambiar el rol o la contraseña se cerrarán las sesiones de ese usuario; si editas tu propia cuenta, deberás volver a ingresar.</p>
+            <div class="acciones-reporte"><button class="primario" type="submit">Guardar cambios</button><button id="cancelar-edicion" type="button">Cancelar</button></div>
+          </form>
+        </section>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

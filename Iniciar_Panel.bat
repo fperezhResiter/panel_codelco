@@ -32,7 +32,8 @@ if errorlevel 1 (
 
 echo.
 echo Iniciando el panel.
-echo Cuando aparezca "Panel disponible", abre Panel.html o la URL indicada.
+echo Se abrira el navegador para iniciar sesion con tus permisos.
+echo Si no se abre, usa la URL indicada. Panel.html con doble clic es solo consulta.
 echo Mantén esta ventana abierta.
 echo Para detener el servidor pulsa Ctrl+C.
 echo.

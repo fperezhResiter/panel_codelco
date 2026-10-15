@@ -19,7 +19,7 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-python3 -c "import openpyxl" >/dev/null 2>&1
+python3 -c "import openpyxl, reportlab" >/dev/null 2>&1
 if [ $? -ne 0 ]; then
     echo "ERROR: Falta openpyxl. Ejecuta scripts/mac/Iniciar_Primera_vez_MAC.command."
     read -p "Presiona Enter para cerrar..."
@@ -36,5 +36,5 @@ if [ $? -ne 0 ]; then
 fi
 
 echo
-echo "Puedes volver al panel y pulsar Recargar datos."
+echo "BD y publicación actualizadas. Abre Panel.html o recarga la página de consulta."
 read -p "Presiona Enter para cerrar..."

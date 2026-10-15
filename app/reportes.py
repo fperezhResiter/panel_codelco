@@ -15,25 +15,42 @@ UNIDADES = ('Andina', 'El Salvador')
 PATRON_DETALLE = r'DETALLEDEIMPUTACIONES(?:(?:EDP|EP)?N?O?\d+)?'
 PATRON_RESIDUOS = r'RESN OPELIGROSOS?'.replace(' ', '')
 ERROR_EDP_DUPLICADO = 'Hay más de un Excel para la misma unidad, período y EDP. Deja una única versión para conciliar.'
-VERSIONES_LECTURA = {'Andina': 'andina-1.1-v2', 'El Salvador': 'salvador-2.5.a-v4'}
+VERSIONES_LECTURA = {'Andina': 'andina-1.1-v3', 'El Salvador': 'salvador-2.5.a-v5'}
+
+
+def ruta_fuente_canonica(archivo):
+    """Insertar la carpeta del año no cambia la identidad de un Excel existente."""
+    partes = str(archivo).replace('\\', '/').split('/')
+    if (len(partes) >= 4 and re.fullmatch(r'20\d{2}', partes[1]) and
+            re.search(r'(?<!\d)' + partes[1] + r'(?!\d)', '/'.join(partes[2:-1]))):
+        partes.pop(1)
+    return '/'.join(partes)
 
 
 def metadatos(ruta, raiz):
     partes = ruta.relative_to(raiz).parts
     if len(partes) < 3:
-        raise ValueError('Ubica el Excel dentro de Unidad / Año-Mes EDP N.º.')
+        raise ValueError('Ubica el Excel dentro de Unidad / Año / Mes EDP N.º.')
     unidad = next((u for u in UNIDADES if clave(u) in clave(partes[0])), None)
     if not unidad:
         raise ValueError('La carpeta de unidad debe identificar Andina o El Salvador.')
-    carpetas = ' / '.join(partes[1:-1])
+    anio_carpeta = int(partes[1]) if re.fullmatch(r'20\d{2}', partes[1]) else None
+    carpetas = ' / '.join(partes[2:-1] if anio_carpeta else partes[1:-1])
     periodo = re.search(r'(?<!\d)(20\d{2})\s*[-_/ ]\s*(0?[1-9]|1[0-2])(?!\d)', carpetas)
     if periodo:
         anio, mes = map(int, periodo.groups())
+        if anio_carpeta and anio != anio_carpeta:
+            raise ValueError('El año de la carpeta del EDP no coincide con la carpeta anual.')
     else:
         anios = re.findall(r'(?<!\d)(20\d{2})(?!\d)', carpetas)
+        if anio_carpeta:
+            anios.append(str(anio_carpeta))
         meses = [i for i, m in enumerate(MESES) if m and normalizar(m) in normalizar(carpetas)]
+        if not meses and anio_carpeta:
+            numericos = [re.match(r'^\s*(0?[1-9]|1[0-2])(?:\s|[-_.])', p) for p in partes[2:-1]]
+            meses = list({int(m[1]) for m in numericos if m})
         if len(set(anios)) != 1 or len(meses) != 1:
-            raise ValueError('No se reconoce el año y mes de la carpeta; usa 2026 -05 EDP 47.')
+            raise ValueError('No se reconoce un único año y mes; usa Unidad / 2026 / 05 EDP 47.')
         anio, mes = int(anios[0]), meses[0]
     edps = re.findall(r'(?:EDP|EP)\s*(?:N[°ºO.]?\s*)?(\d+)', normalizar(carpetas))
     edp = int(unico(list(set(edps)), 'No se reconoce un único número de EDP en la carpeta.'))

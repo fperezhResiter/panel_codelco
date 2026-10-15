@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mi perfil — Reporte Codelco</title>
+  <link rel="stylesheet" href="/web/css/panel.css">
+  <script src="/web/js/sesion.js" defer></script>
+  <script src="/web/js/perfil.js" defer></script>
+<!-- INICIO CONTROLES UNIVERSALES -->
+<link rel="stylesheet" href="/web/css/controles-comunes.css">
+<script src="/web/js/controles-comunes.js" data-menu="../../../../Panel Universal.html"></script>
+<!-- FIN CONTROLES UNIVERSALES -->
+</head>
+<body>
+  <header><img class="logo" src="/web/img/logo_sin_fondo_resiter.png" alt="Resiter"><h1>Reporte Codelco</h1><a class="volver-inicio" href="/Panel.html">← Volver al inicio</a></header>
+  <main class="perfil">
+    <div class="intro"><div><p class="eyebrow">MI CUENTA</p><h2>Mi perfil</h2><p>Consulta tu información y cambia tu contraseña.</p></div></div>
+    <p id="estado-perfil" role="status" aria-live="polite">Cargando perfil…</p>
+    <section class="tarjeta">
+      <div class="titulo"><h3>Datos de tu cuenta</h3></div>
+      <div class="contenido"><dl class="detalle-datos"><div><dt>Correo</dt><dd id="perfil-correo">—</dd></div><div><dt>Rol</dt><dd id="perfil-rol">—</dd></div></dl><p id="perfil-vista" class="nota-guardado" hidden>Actualmente estás usando la vista General. El rol de tu cuenta sigue siendo Admin.</p></div>
+    </section>
+    <section class="tarjeta">
+      <div class="titulo"><h3>Cambiar contraseña</h3></div>
+      <form id="password-perfil" class="contenido">
+        <label>Contraseña actual<input name="actual" type="password" autocomplete="current-password" required maxlength="256"></label>
+        <label>Nueva contraseña<input name="nueva" type="password" autocomplete="new-password" required minlength="10" maxlength="256"></label>
+        <label>Confirmar nueva contraseña<input name="confirmacion" type="password" autocomplete="new-password" required minlength="10" maxlength="256"></label>
+        <p class="nota-guardado">Mínimo 10 caracteres. Al guardar, se cerrarán tus sesiones y deberás ingresar con la nueva contraseña.</p>
+        <button class="primario" type="submit" disabled>Guardar nueva contraseña</button>
+      </form>
+    </section>
+  </main>
+</body>
+</html>

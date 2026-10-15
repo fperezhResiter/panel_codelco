@@ -21,9 +21,9 @@ echo ERROR: Se requiere Python 3.10 o superior.
 goto error
 
 :actualizar
-%PYTHON_CMD% -c "import openpyxl" >nul 2>&1
+%PYTHON_CMD% -c "import openpyxl, reportlab" >nul 2>&1
 if errorlevel 1 (
-    echo ERROR: Falta openpyxl. Ejecuta Iniciar_Primera_Vez.bat.
+    echo ERROR: Faltan dependencias. Ejecuta Iniciar_Primera_Vez.bat.
     goto error
 )
 
@@ -32,7 +32,7 @@ echo.
 if errorlevel 1 goto error
 
 echo.
-echo Puedes volver al panel y pulsar Recargar datos.
+echo BD y publicacion actualizadas. Abre Panel.html o recarga la pagina de consulta.
 pause
 popd
 endlocal
@@ -40,7 +40,7 @@ exit /b 0
 
 :error
 echo.
-echo No se pudo actualizar la base de datos.
+echo No se pudo completar la actualizacion y publicacion. Revisa el mensaje anterior.
 pause
 popd
 endlocal
